@@ -29,6 +29,8 @@ import sys
 # Append mugqic_pipelines directory to Python library path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0])))))
 
+from core import dependencies
+
 # MUGQIC Modules
 from core.config import *
 from core.job import *
@@ -1336,4 +1338,5 @@ cp {snv_metrics_prefix}.chromosomeChange.zip report/SNV.chromosomeChange.zip""".
         ]
 
 if __name__ == '__main__':
-    DnaSeq()
+    a = DnaSeq()
+    dependencies.make(a.steps)

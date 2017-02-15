@@ -149,5 +149,3 @@ function toggleItemCollectionToHidden(collectionName){
 		}
 	}
 }
-
-

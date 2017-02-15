@@ -146,8 +146,10 @@ exit \$MUGQIC_STATE" | \\
                         config.param(job_name_prefix, 'cluster_output_dir_arg') + " $JOB_OUTPUT " + \
                         config.param(job_name_prefix, 'cluster_job_name_arg') + " $JOB_NAME " + \
                         config.param(job_name_prefix, 'cluster_walltime') + " " + \
-                        config.param(job_name_prefix, 'cluster_queue') + " " + \
-                        config.param(job_name_prefix, 'cluster_cpu')
+                        config.param(job_name_prefix, 'cluster_queue', required=False) + " " + \
+                        config.param(job_name_prefix, 'cluster_cpu') + " " + \
+                        config.param(job_name_prefix, 'cluster_mem')
+                        
                     if job.dependency_jobs:
                         cmd += " " + config.param(job_name_prefix, 'cluster_dependency_arg') + "$JOB_DEPENDENCIES"
                     cmd += " " + config.param(job_name_prefix, 'cluster_submit_cmd_suffix')

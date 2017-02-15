@@ -140,3 +140,17 @@ python $PYTHON_TOOLS/vcfStats.py \\
         list=list
         )
     )
+
+def differential_methylated_metrics(inputs, output_basename):
+    return Job (
+        inputs,
+        [output_basename + 'dmps_by_sequence.pdf'],
+        [
+            ['differential_methylated_pos', 'module_mugqic_tools'],
+            ['differential_methylated_pos', 'module_R']
+        ],
+        command="""\
+Rscript /hpf/largeprojects/ccmbio/jonBarenboim/mugqic_pipelines/pipelines/episeq/differentialMethylatedPos.R \\
+    -i {inputs} \\
+    -o {output}""".format(inputs=inputs, output=output_basename)
+    )

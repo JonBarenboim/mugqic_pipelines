@@ -93,7 +93,7 @@ class Job:
     def command_with_modules(self):
         command = self.command
         if self.modules:
-            command = "module load " + " ".join(self.modules) + " && \\\n" + command
+            command = "module load mugqic-pipelines/2.2.0 && module load " + " ".join(self.modules) + " && \\\n" + command
         return command
 
     def abspath(self, file):
