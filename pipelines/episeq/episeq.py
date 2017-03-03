@@ -247,9 +247,9 @@ class EpiSeq(Illumina):
             self.calc_dedup_nucleotide_coverage,
             self.bismark_methylation_caller,
             self.bismark_html_report_generator,
+            self.methylation_values,
             self.differential_methylated_pos,
-            self.differential_methylated_regions,
-            self.differential_methylated_metrics
+            self.differential_methylated_regions
         ]
 
     # Pipeline steps start here
@@ -1180,42 +1180,111 @@ bismark_methylation_extractor {library_type} {other} --multicore {core} --output
                                      mkdir_job, job, report_job], name='bismark_report.' + sample.name))
         return jobs
 
-    def differential_methylated_pos(self):  # Step 12
+    def methylation_values(self):
+
+        report_file = 'report/EpiSeq.methylation_values.md'
+        beta_metrics_file = os.path.join("methylation_values", "methylation_metrics.tsv")
+        beta_beanplot_file = os.path.join('report', 'beta_distribution.png')
+        beta_file = os.path.join('methylation_value_metrics', 'methylation_value.csv')
+        report_data = 'report/data/methylation_values'
+
+        cov_files = [os.path.join("methyl_calls", sample.name, sample.name + ".merged.deduplicated.bismark.cov.gz")
+                     for sample in self.samples]  # Input files
+        sample_group = [sample.name for sample in self.samples]
+
+        command="""\
+mkdir -p {directory} && \\
+R --no-save --no-restore <<-'EOF'
+suppressPackageStartupMessages(library(BiSeq))
+suppressPackageStartupMessages(library(knitr))
+suppressPackageStartupMessages(library(minfi))
+rrbs <- readBismark(c{samples}, colData=DataFrame(group=factor(c{group}), row.names=c{sample_names}))
+rrbs.filtered <- rrbs[apply(totalReads(rrbs), 1, function(x) any (x > {coverage})),]
+beta <- methLevel(rawToRel(rrbs.filtered))
+
+metrics <- data.frame(total.pos=apply(beta, 2, function(x) length(x[!is.na(x)]) ), row.names=colnames(beta))
+metrics$num.na <- apply(beta, 2, function(x) length(x[is.na(x)]) )
+cat(kable(metrics, row.names=TRUE), file="{beta_metrics_file}", sep="\n")
+
+write.csv(beta, file="{beta_file}", quote=FALSE, row.names=FALSE)
+
+png('{beta_beanplot_file}')
+densityBeanPlot(as.matrix(beta))
+dev.off()
+
+EOF
+
+mkdir -p {data_dir} && \\
+cp -f {beta_file} {data_dir}; \\
+
+table=$(cat {beta_metrics_file}) && \\
+pandoc \\
+    {report_template_dir}/{basename_report_file} \\
+    --template {report_template_dir}/{basename_report_file} \\
+    --variable metrics_table="$table" \\
+    --to markdown > {report_file}""".format(
+            directory=os.path.dirname(beta_file),
+            samples=tuple(cov_files),
+            group=tuple(sample_group),
+            sample_names=tuple([sample.name for sample in self.samples]),
+            coverage=config.param("methylation_value_metrics", "read_coverage"),
+            beta_file=beta_file,
+            beta_metrics_file=beta_metrics_file,
+            data_dir=report_data,
+            report_template_dir=self.report_template_dir,
+            basename_report_file=os.path.basename(report_file),
+            beta_beanplot_file=beta_beanplot_file,
+            report_file=report_file)
+
+        job = Job(
+            cov_files,
+            [beta_file],
+            [
+                ["methylation_value_metrics", "module_R"],
+                ["methylation_value_metrics", "module_pandoc"]
+            ],
+            command = command,
+            report_files=[report_file],
+            name="methylation_value_metrics")
+
+        return [job]
+
+    def differential_methylated_pos(self):
         """
-        This step finds a list of differentially methylated CpG sites with respect to a categorical
-        phenotype (controls vs. cases). The BedGraph files from the previous methylation calling step are first combined
-        to a BSRaw object with the R package BiSeq. Then, the dmpFinder function from the R package minfi is used to
-        compute a F-test statistic on the beta values for the assayed CpGs in each sample. A p-value is then returned
-        for each site with the option of correcting them for multiple testing. Differential analysis is done for each
-        contrast specified in the design file
+    This step finds a list of differentially methylated CpG sites with respect to a categorical
+    phenotype (controls vs. cases). The BedGraph files from the previous methylation calling step are first combined
+    to a BSRaw object with the R package BiSeq. Then, the dmpFinder function from the R package minfi is used to
+    compute a F-test statistic on the beta values for the assayed CpGs in each sample. A p-value is then returned
+    for each site with the option of correcting them for multiple testing. Differential analysis is done for each
+    contrast specified in the design file
 
-        The values from the design files dictates how the samples are treated and compared.
+    The values from the design files dictates how the samples are treated and compared.
 
-        Input: Methylation data (methyl_calls/)
-        Output: A CSV file in differential_methylated_positions/
+    Input: Methylation data (methyl_calls/)
+    Output: A CSV file in differential_methylated_positions/
 
-        :return: A list of jobs that needs to be executed in this step.
-        :rtype: list(Job)
-        """
+    :return: A list of jobs that needs to be executed in this step.
+    :rtype: list(Job)
+    """
+
         # Report file variables
-        report_file = 'report/EpiSeq.differential_methylated_pos2.md'
+        report_file = 'report/EpiSeq.differential_methylated_pos.md'
         report_data = 'report/data/differential_methylated_pos/'
-        zip_file = 'differential_methylated_pos.zip'  # Will hold all contrasts in one.
-        #template_string_file = 'differential_methylated_positions/' + datetime.datetime.now().strftime('%Y_%m_%d') + "_template_var_strings.txt"
+        beta_file = os.path.join('methylation_value_metrics', 'methylation_value.csv')
         fill_in_entry = '| {contrast_name} | {contrast_view} |'
 
         jobs = []
         for contrast in self.contrasts:
-            # Pulls data from design files such that zip(contrast, group) works.
             contrast_samples = [sample for sample in contrast.controls + contrast.treatments]
             sample_group = ["control" if sample in contrast.controls else "case" for sample in contrast_samples]
 
             # Get file paths
             cov_files = [os.path.join("methyl_calls", sample.name, sample.name + ".merged.deduplicated.bismark.cov.gz")
-                         for sample in contrast_samples]  # Input files
+                     for sample in contrast_samples]  # Input files
             dmps_file = os.path.join("differential_methylated_positions",
-                                     contrast.name + "_RRBS_differential_methylated_pos.csv")  # Output file
-            barplot_file = os.path.join("report", "differential_methylated_pos" + contrast.name + ".pdf")
+                contrast.name + "_RRBS_differential_methylated_pos.csv")  # Output file
+            metrics_file = os.path.join("differential_methylated_positions",
+                contrast.name + "_metrics.tsv")
 
             # Abort analysis if not enough samples (Will cause dmpFinder to throw an error)
             if len(contrast.controls) == 0 or contrast.treatments == 0 or len(contrast_samples) <= 2:  # No 1v1 or less
@@ -1229,22 +1298,14 @@ bismark_methylation_extractor {library_type} {other} --multicore {core} --output
                 )
             )
 
-            # Job declaration
-            job = Job(
-                cov_files,
-                [dmps_file, os.path.join(report_data, zip_file)],
-                [
-                    ["differential_methylated_pos", "module_R"],
-                    ["differential_methylated_pos", "module_mugqic_R_packages"],
-                    ["differential_methylated_pos", "module_pandoc"]
-                ],
-                command="""\
+            command = """\
 TEMPLATE_STR_FILE=differential_methylated_positions/$(date +%F)_template_var_strings.txt && \\
 mkdir -p {directory} && \\
 flock -x ${{TEMPLATE_STR_FILE}}.lock -c "echo \\"{entry}\\" >> ${{TEMPLATE_STR_FILE}}" && \\
-R --no-save --no-restore <<-EOF
+R --no-save --no-restore <<-'EOF'
 suppressPackageStartupMessages(library(BiSeq))
 suppressPackageStartupMessages(library(minfi))
+
 rrbs <- readBismark(c{samples}, colData=DataFrame(group=factor(c{group}), row.names=c{sample_names}))
 rrbs.filtered <- rrbs[apply(totalReads(rrbs), 1, function(x) any(x > {coverage})),]
 beta <- methLevel(rawToRel(rrbs.filtered))
@@ -1258,8 +1319,8 @@ beta[beta == 1] = 0.999999
 M <- log2(beta/(1-beta))
 
 dmp <- dmpFinder(M, pheno=colData(rrbs.filtered)[,"group"], type="categorical")
-dmp["pval"] <- p.adjust(dmp[,"pval"], method = "{padjust_method}")
-dmp <- dmp[dmp["pval"] < {pvalue},]["pval"]
+dmp["pval.adjusted"] <- p.adjust(dmp[,"pval"], method = "{padjust_method}")
+dmp <- dmp[dmp["pval.adjusted"] < {pvalue},][c("pval", "pval.adjusted")]
 
 controls <- c({controls})
 cases <- c({cases})
@@ -1267,7 +1328,9 @@ result = as.data.frame(rowRanges(rrbs.filtered))[1:4]
 result["Avg Control Beta"] = rowMeans(beta[,controls])
 result["Avg Case Beta"] = rowMeans(beta[,cases])
 result["Avg Delta Beta"] = result[,"Avg Case Beta"] - result[,"Avg Control Beta"]
+result <- cbind(result, beta)
 result <- merge(result, dmp, by=0)
+
 result <- result[abs(result["Avg Delta Beta"]) > {delta_beta_threshold},]
 
 write.csv(result, file="{dmps_file}", quote=FALSE, row.names=FALSE)
@@ -1281,69 +1344,121 @@ pandoc \\
     --template {report_template_dir}/{basename_report_file} \\
     --variable data_table="$table" \\
     --to markdown > {report_file}""".format(
-                    entry=report_entry,
-                    directory=os.path.dirname(dmps_file),
-                    samples=tuple(cov_files),
-                    group=tuple(sample_group),
-                    sample_names=tuple([sample.name for sample in contrast_samples]),
-                    coverage=config.param("differential_methylated_pos", "read_coverage"),
-                    controls=', '.join(["'" + sample.name + "'" for sample in contrast.controls]),
-                    cases=', '.join(["'" + sample.name + "'" for sample in contrast.treatments]),
-                    padjust_method=config.param("differential_methylated_pos", "padjust_method"),
-                    pvalue=config.param("differential_methylated_pos", "pvalue", type="float"),
-                    delta_beta_threshold=config.param("differential_methylated_pos", "delta_beta_threshold",
-                                                      type="float"),
-                    dmps_file=dmps_file,
-                    data_dir=report_data,
-                    zip_file=os.path.join(report_data, zip_file),
-                    report_template_dir=self.report_template_dir,
-                    basename_report_file=os.path.basename(report_file),
-                    report_file=report_file,
-                    barplot_file=barplot_file),
-                report_files=[report_file],
-                name="differential_methylated_pos." + contrast.name)
-            jobs.append(job)
-        return jobs
-
-    def differential_methylated_regions(self):  # Step 13
-        """
-        Similar to differential_methylated_positions, this step looks at methylation patterns on a larger, regional
-        level. This step compares large-scale differences in methylation as opposed to comparing local methylation
-        sites.
-
-        Input: Methylation data (methyl_calls/)
-        Output: A CSV file in differential_methylated_regions/
-
-        :return: A list of jobs that needs to be executed in this step.
-        :rtype: list(Job)
-        """
-        # Report file variables
-        report_file = 'report/EpiSeq.differential_methylated_regions.md'
-        report_data = 'report/data/differential_methylated_regions/'
-        zip_file = 'differential_methylated_regions.zip'  # Will hold all contrasts in one.
-
-        jobs = []
-
-        for contrast in self.contrasts:
-            # Determine the control and case samples to include in the analysis from the contrast
-            contrast_samples = [sample for sample in contrast.controls + contrast.treatments]
-            cov_files = [os.path.join("methyl_calls", sample.name, sample.name +
-                                      ".merged.deduplicated.bismark.cov.gz") for sample in contrast_samples]
-            sample_group = ["control" if sample in contrast.controls else "case" for sample in contrast_samples]
-            dmrs_file = os.path.join("differential_methylated_regions",
-                                     contrast.name + "_RRBS_differential_methylated_regions.csv")
+                entry=report_entry,
+                directory=os.path.dirname(dmps_file),
+                samples=tuple(cov_files),
+                group=tuple(sample_group),
+                sample_names=tuple([sample.name for sample in contrast_samples]),
+                coverage=config.param("differential_methylated_pos", "read_coverage"),
+                beta_file=beta_file,
+                controls=', '.join(["'" + sample.name + "'" for sample in contrast.controls]),
+                cases=', '.join(["'" + sample.name + "'" for sample in contrast.treatments]),
+                padjust_method=config.param("differential_methylated_pos", "padjust_method"),
+                pvalue=config.param("differential_methylated_pos", "pvalue", type="float"),
+                delta_beta_threshold=config.param("differential_methylated_pos", "delta_beta_threshold",
+                    type="float"),
+                dmps_file=dmps_file,
+                data_dir=report_data,
+                report_template_dir=self.report_template_dir,
+                basename_report_file=os.path.basename(report_file),
+                report_file=report_file,
+                metrics_file=metrics_file,
+                contrast_name=contrast.name)
 
             job = Job(
                 cov_files,
-                [dmrs_file, os.path.join(report_data, zip_file)],
+                [dmps_file, metrics_file],
                 [
-                    ["differential_methylated_regions", "module_R"],
-                    ["differential_methylated_regions", "module_mugqic_R_packages"],
-                    ["differential_methylated_regions", "module_pandoc"]
+                    ["differential_methylated_pos", "module_R"],
+                    ["differential_methylated_pos", "module_mugqic_R_packages"],
+                    ["differential_methylated_pos", "module_pandoc"]
                 ],
-                command="""\
-mkdir -p {directory}
-R --no-save --no-restore <<-EOF
+                command=command,
+                report_files=[report_file],
+                name="differential_methylated_pos." + contrast.name)
+
+            jobs.append(job)
+
+            # metrics and report
+            cases = [sample.name for sample in contrast.treatments]
+            controls = [sample.name for sample in contrast.controls]
+            metrics_job = metrics.dmp_metrics(dmps_file, beta_file, cases, controls, 'report', contrast.name)
+            metrics_report = 'report/EpiSeq.dmp_metrics.md'
+            metrics_job.report_files = [metrics_report]
+
+            metrics_table_file = os.path.join('report', 'dmp.metrics.table')
+            graphs = metrics_job.output_files
+            img_list = "\n\n".join(['![](' + os.path.basename(graph) + ')' for graph in graphs])
+
+            pandoc_command = """
+TEMPLATE_STR_FILE=differential_methylated_positions/$(date +%F)_metrics_template_strings.txt && \\
+flock -x ${{TEMPLATE_STR_FILE}}.lock -c "echo \\"{img_list}\\" >> ${{TEMPLATE_STR_FILE}}" && \\
+metrics_table=$(cat {metrics_table_file}) && \\
+img_list=$(cat $TEMPLATE_STR_FILE) && \\
+pandoc \\
+    {report_template_dir}/{basename_report_file} \\
+    --template {report_template_dir}/{basename_report_file} \\
+    --variable metrics_table="$metrics_table" \\
+    --variable img_list="$img_list" \\
+    --variable pval_cutoff={pvalue} \\
+    --variable delta_cutoff={delta_cutoff} \\
+    --to markdown > {report_file}""".format(
+            report_template_dir=self.report_template_dir,
+            basename_report_file=os.path.basename(metrics_report),
+            metrics_table_file=metrics_table_file,
+            img_list=img_list if len(self.contrasts) == 1 else "####" + contrast.name + img_list + "\n",
+            report_file=metrics_report,
+            pvalue=config.param("differential_methylated_pos", "pvalue", type="float"),
+            delta_cutoff=config.param("differential_methylated_pos", "delta_beta_threshold",
+                    type="float")
+        )
+            pandoc_job = Job(command=pandoc_command, module_entries=[['differential_methylated_pos', 'module_pandoc']])
+            jobs.append(concat_jobs([metrics_job, pandoc_job], name="dmp_metrics." + contrast.name))
+
+        return jobs
+
+
+    def differential_methylated_regions(self):
+        """
+    Similar to differential_methylated_positions, this step looks at methylation patterns on a larger, regional
+    level. This step compares large-scale differences in methylation as opposed to comparing local methylation
+    sites.
+
+    Input: Methylation data (methyl_calls/)
+    Output: A CSV file in differential_methylated_regions/
+
+    :return: A list of jobs that needs to be executed in this step.
+    :rtype: list(Job)
+    """
+        # Report file variables
+        report_file = 'report/EpiSeq.differential_methylated_regions.md'
+        report_data = 'report/data/differential_methylated_regions/'
+        fill_in_entry = '| {contrast_name} | {contrast_view} |'
+        beta_file = os.path.join("methylation_values", "methylation_values.csv")
+
+        jobs = []
+        for contrast in self.contrasts:
+            # Determine the control and case samples to include in the analysis from the contrast
+            contrast_samples = [sample for sample in contrast.controls + contrast.treatments]
+
+            sample_group = ["control" if sample in contrast.controls else "case" for sample in contrast_samples]
+            cov_files = [os.path.join("methyl_calls", sample.name, sample.name + ".merged.deduplicated.bismark.cov.gz")
+                     for sample in contrast_samples]  # Input files
+            dmrs_file = os.path.join("differential_methylated_regions",
+                contrast.name + "_RRBS_differential_methylated_regions.csv")
+
+            report_entry = fill_in_entry.format(
+                contrast_name = contrast.name,
+                contrast_view = '[download csv]({link})'.format(
+                    link = os.path.join(report_data, os.path.basename(dmrs_file))
+                )
+            )
+
+            command = """\
+TEMPLATE_STR_FILE=differential_methylated_regions/$(date +%F)_template_var_strings.txt && \\
+mkdir -p {directory} && \\
+flock -x ${{TEMPLATE_STR_FILE}}.lock -c "echo \\"{entry}\\" >> ${{TEMPLATE_STR_FILE}}"
+R --no-save --no-restore <<-'EOF'
 suppressPackageStartupMessages(library(bumphunter))
 suppressPackageStartupMessages(library(BiSeq))
 library(doParallel)
@@ -1372,46 +1487,75 @@ dmrs <- bumphunterEngine(beta,
 
 dmrs <- na.omit(dmrs)
 
-write.csv(dmrs$table, "{dmrs_file}", quote=FALSE, row.names=FALSE)
+write.csv(dmrs$tab, "{dmrs_file}", quote=FALSE, row.names=FALSE)
 
 EOF
 mkdir -p {data_dir}
-zip {zip_file} {dmrs_file} && \\
+cp -f {dmrs_file} {data_dir}
+table=$(cat $TEMPLATE_STR_FILE) && \\
 pandoc \\
     {report_template_dir}/{basename_report_file} \\
     --template {report_template_dir}/{basename_report_file} \\
+    --variable data_table="$table" \\
     --to markdown > {report_file}""".format(
-                    directory=os.path.dirname(dmrs_file),
-                    samples=tuple(cov_files),
-                    group=tuple(sample_group),
-                    coverage=config.param("differential_methylated_regions", "read_coverage", type="int"),
-                    sample_names=tuple([sample.name for sample in contrast_samples]),
-                    cores=config.param('bismark_methylation_caller', 'cluster_cpu').split('=')[-1],
-                    delta_beta_threshold=config.param("differential_methylated_regions", "delta_beta_threshold",
-                                                      type="float"),
-                    permutations=config.param("differential_methylated_regions", "permutations", type="int"),
-                    dmrs_file=dmrs_file,
-                    data_dir=report_data,
-                    zip_file=os.path.join(report_data, zip_file),
-                    report_template_dir=self.report_template_dir,
-                    basename_report_file=os.path.basename(report_file),
-                    report_file=report_file),
+                entry=report_entry,
+                directory=os.path.dirname(dmrs_file),
+                samples=tuple(cov_files),
+                group=tuple(sample_group),
+                coverage=config.param("differential_methylated_regions", "read_coverage", type="int"),
+                sample_names=tuple([sample.name for sample in contrast_samples]),
+                cores=config.param('bismark_methylation_caller', 'cluster_cpu').split('=')[-1],
+                delta_beta_threshold=config.param("differential_methylated_regions", "delta_beta_threshold",
+                    type="float"),
+                permutations=config.param("differential_methylated_regions", "permutations", type="int"),
+                dmrs_file=dmrs_file,
+                data_dir=report_data,
+                report_template_dir=self.report_template_dir,
+                basename_report_file=os.path.basename(report_file),
+                report_file=report_file)
+
+            job = Job(
+                cov_files,
+                [dmrs_file],
+                [
+                    ["differential_methylated_regions", "module_R"],
+                    ["differential_methylated_regions", "module_mugqic_R_packages"],
+                    ["differential_methylated_regions", "module_pandoc"]
+                ],
+                command=command,
                 report_files=[report_file],
                 name="differential_methylated_regions." + contrast.name)
 
+
             jobs.append(job)
 
+            metrics_job = metrics.dmr_metrics(dmrs_file, beta_file, 'report', contrast.name)
+            metrics_report = 'report/EpiSeq.dmr_metrics.md'
+            metrics_job.report_files = [metrics_report]
+
+            graphs = metrics_job.output_files
+            img_list = "\n\n".join(['![](' + os.path.basename(graph) + ')' for graph in graphs])
+
+            pandoc_command = """\
+TEMPLATE_STR_FILE=differential_methylated_regions/$(date +%F)_metrics_template_stings.txt && \\
+flock -x ${{TEMPLATE_STR_FILE}}.lock -c "echo \\"{img_list}\\" >> ${{TEMPLATE_STR_FILE}}" && \\
+img_list=$(cat $TEMPLATE_STR_FILE) &&
+pandoc \\
+    {report_template_dir}/{basename_report_file} \\
+    --template {report_template_dir}/{basename_report_file} \\
+    --variable img_list="$img_list" \\
+    --to markdown > {report_file}""".format(
+                img_list=img_list if len(self.contrasts)==1 else "####" + contrast.name + img_list + "\n",
+                report_template_dir=self.report_template_dir,
+                basename_report_file=os.path.basename(metrics_report),
+                report_file=metrics_report
+            )
+            pandoc_job = Job(command=pandoc_command, module_entries=[['differential_methylated_pos', 'module_pandoc']])
+
+            jobs.append(concat_jobs([metrics_job, pandoc_job], name="dmr_metrics." + contrast.name))
+
+
         return jobs
-
-    def differential_methylated_metrics(self):
-        input_files = [os.path.join("differential_methylated_positions",
-            contrast.name + "_RRBS_differential_methylated_pos.csv") for contrast in self.contrasts]
-
-        #TODO: add params (inputs, output_basename)
-        job = metrics.differential_methylated_metrics(input_files, "report")
-        job.name = "differential_methylated_metrics"
-        return [job]
-
 
 if __name__ == '__main__':
     EpiSeq()

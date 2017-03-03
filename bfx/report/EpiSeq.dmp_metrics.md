@@ -2,9 +2,9 @@
 
 * total.pos: total number of positions analyzed between all samples
 
-* filterd.pos <- number of differentially methylated position. Filtered by pval < $pval_cutoff$ and Avg.Delta.Beta > $delta_cutoff$
+* num.dmp <- number of differentially methylated position. Filtered by pval < $pval_cutoff$ and Avg.Delta.Beta > $delta_cutoff$
 
-* percent.kept <- percentage of positions identified as differentially methylated
+* percent.differential <- percentage of positions identified as differentially methylated
 
 $metrics_table$
 

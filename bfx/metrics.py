@@ -141,16 +141,56 @@ python $PYTHON_TOOLS/vcfStats.py \\
         )
     )
 
-def differential_methylated_metrics(inputs, output_basename):
+def beta_metrics(beta_file, output_dir):
+    graphs = ['beta_distribution']
     return Job (
-        inputs,
-        [output_basename + 'dmps_by_sequence.pdf'],
+        [beta_file],
+        [os.path.join(output_dir, graph + ".png") for graph in graphs],
         [
-            ['differential_methylated_pos', 'module_mugqic_tools'],
-            ['differential_methylated_pos', 'module_R']
+            ['methylation_values', 'module_mugqic_tools'],
+            ['methylation_values', 'module_R']
         ],
         command="""\
-Rscript /hpf/largeprojects/ccmbio/jonBarenboim/mugqic_pipelines/pipelines/episeq/differentialMethylatedPos.R \\
-    -i {inputs} \\
-    -o {output}""".format(inputs=inputs, output=output_basename)
+Rscript /hpf/largeprojects/ccmbio/jonBarenboim/mugqic_pipelines/pipelines/episeq/betaMetrics.R \\
+    {beta_file} {output_dir}""".format(beta_file=beta_file, output_dir=output_dir)
+    )
+
+def dmp_metrics(dmp_file, beta_file, cases, controls, output_dir, contrast_name):
+    graphs = ['dmps_by_avg_delta_beta', 'dmp_heatmap',
+              'global_beta_pca', 'dmp_beta_pca']
+    return Job (
+        [dmp_file, beta_file],
+        [os.path.join(output_dir, contrast_name + "." + graph + ".png") for graph in graphs],
+        [
+            ['dmp_metrics', 'module_mugqic_tools'],
+            ['dmp_metrics', 'module_R']
+        ],
+        command="""\
+Rscript /hpf/largeprojects/ccmbio/jonBarenboim/mugqic_pipelines/pipelines/episeq/dmpMetrics.R \\
+    {dmp_file} {beta_file} "{cases}" "{controls}" {output_dir} {contrast_name}""".format(
+            dmp_file=dmp_file,
+            beta_file=beta_file,
+            output_dir=output_dir,
+            cases=cases,
+            controls=controls,
+            contrast_name=contrast_name)
+    )
+
+def dmr_metrics(dmr_file, beta_file, output_dir, contrast_name):
+    graphs = ['dmrs_by_value', 'dmrs_by_area']
+    return Job (
+        [dmr_file, beta_file],
+        [os.path.join(output_dir, contrast_name + "." + graph + ".png") for graph in graphs],
+        [
+            ['dmr_metrics', 'module_mugqic_tools'],
+            ['dmr_metrics', 'module_R']
+        ],
+        command="""\
+Rscript /hpf/largeprojects/ccmbio/jonBarenboim/mugqic_pipelines/pipelines/episeq/dmrMetrics.R \\
+    {dmr_file} {beta_file} {output_dir} {contast_name}""".format(
+            dmr_file=dmr_file,
+            beta_file=beta_file,
+            output_dir=output_dir,
+            contast_name=contrast_name
+        )
     )
