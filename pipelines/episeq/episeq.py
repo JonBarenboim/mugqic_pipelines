@@ -249,7 +249,10 @@ class EpiSeq(Illumina):
             self.bismark_html_report_generator,
             self.methylation_values,
             self.differential_methylated_pos,
-            self.differential_methylated_regions
+            self.differential_methylated_regions,
+            self.prepare_annotations,
+            self.annotate_regions,
+            self.annotate_regions
         ]
 
     # Pipeline steps start here
@@ -1185,7 +1188,7 @@ bismark_methylation_extractor {library_type} {other} --multicore {core} --output
         report_file = 'report/EpiSeq.methylation_values.md'
         beta_metrics_file = os.path.join("methylation_values", "methylation_metrics.tsv")
         beta_beanplot_file = os.path.join('report', 'beta_distribution.png')
-        beta_file = os.path.join('methylation_value_metrics', 'methylation_value.csv')
+        beta_file = os.path.join('methylation_values', 'methylation_values.csv')
         report_data = 'report/data/methylation_values'
 
         cov_files = [os.path.join("methyl_calls", sample.name, sample.name + ".merged.deduplicated.bismark.cov.gz")
@@ -1270,7 +1273,7 @@ pandoc \\
         # Report file variables
         report_file = 'report/EpiSeq.differential_methylated_pos.md'
         report_data = 'report/data/differential_methylated_pos/'
-        beta_file = os.path.join('methylation_value_metrics', 'methylation_value.csv')
+        beta_file = os.path.join('methylation_values', 'methylation_values.csv')
         fill_in_entry = '| {contrast_name} | {contrast_view} |'
 
         jobs = []
@@ -1362,12 +1365,11 @@ pandoc \\
                 report_template_dir=self.report_template_dir,
                 basename_report_file=os.path.basename(report_file),
                 report_file=report_file,
-                metrics_file=metrics_file,
                 contrast_name=contrast.name)
 
             job = Job(
                 cov_files,
-                [dmps_file, metrics_file],
+                [dmps_file],
                 [
                     ["differential_methylated_pos", "module_R"],
                     ["differential_methylated_pos", "module_mugqic_R_packages"],
@@ -1556,6 +1558,128 @@ pandoc \\
 
 
         return jobs
+
+    def prepare_annotations(self):
+        annotations_file = "prepare_annotations/annotations.Rdata"
+
+        command = """\
+mkdir -p {directory} && \\
+R --no-save --no-restore <<-'EOF'
+suppressPackageStartupMessages(library(GenomicFeatures))
+
+txdb <- makeTxDbFromGFF('{gtf_file}', format="gtf", organism='{organism}')
+
+# add 'chr' prefix to sequence names in txdb to match dmr/dmp format
+s <- seqlevels(txdb)
+s <- unlist(lapply(s, function(x) if (grepl('^[XYM1-9]', x)) paste('chr', x, sep='') else x))
+txdb <- renameSeqlevels(txdb, s)
+
+annotations <- annotateTranscripts(txdb, by='tx', codingOnly=FALSE)
+
+save(annotations, file='{annotations_file}')
+EOF""".format(
+            directory=os.path.dirname(annotations_file),
+            gtf_file=config.param('annotate_regions', 'gtf'),
+            organism=config.param('annotate_regions', 'scientific_name').replace('_', ' '),
+            annotations_file=annotations_file
+        )
+
+        return Job (
+            [],
+            [annotations_file],
+            [['prepare_annotations', 'module_R']],
+            command=command,
+            name="perpare_annotations"
+        )
+
+    def annotate_regions(self):
+        jobs = []
+        annotations_file = "prepare_annotations/annotations.Rdata"
+        for contrast in self.contrasts:
+            dmr_file = os.path.join("differential_methylated_regions",
+                                    contrast.name + "_RRBS_differential_methylated_regions.csv")
+            matched_file = os.path.join("annotate_regions", contrast.name + ".matched_genes.csv")
+
+            command = """\
+mkdir -p {directory} && \\
+R --no-save --no-restore <<-'EOF'
+suppressPackageStartupMessages(library(bumphunter))
+library(doParallel)
+registerDoParallel(cores={cores})
+
+dmrs <- read.csv('{dmr_file}')
+
+load('{annotations_file}')
+
+matched.genes <- matchGenes(dmrs, annotations,
+    promoterDist={promoterDist}, type='{type}', skipExons={skipExons})
+write.csv(matched.genes, file='{matched_file}')
+EOF""".format(
+                directory=os.path.dirname(matched_file),
+                cores=config.param('annotate_regions', 'cluster_cpu').split('=')[-1],
+                dmr_file=dmr_file,
+                annotations_file=annotations_file,
+                promoterDist=config.param('annotate_regions', 'promoter_distance'),
+                type=config.param('annotate_regions', 'distance_type'),
+                skipExons=str(config.param('annotate_regions', 'skip_exons', type='boolean')).upper(),
+                matched_file=matched_file)
+
+            job = Job(
+                [dmr_file],
+                [matched_file],
+                [['annotate_regions', 'module_R']],
+                command=command,
+                name="annotate_regions." + contrast.name
+            )
+
+            jobs.append(job)
+
+        return jobs
+
+    def annotate_positions(self):
+        jobs = []
+        annotations_file = "prepare_annotations/annotations.Rdata"
+        for contrast in self.contrasts:
+            dmp_file = os.path.join("differential_methylated_positions",
+                                    contrast.name + "_RRBS_differential_methylated_pos.csv")
+            matched_file = os.path.join("annotate_positions", contrast.name + ".matched_genes.csv")
+
+            command = """\
+mkdir -p {directory} && \\
+R --no-save --no-restore <<-'EOF'
+suppressPackageStartupMessages(library(bumphunter))
+library(doParallel)
+registerDoParallel(cores={cores})
+
+dmps <- read.csv('{dmp_file}')
+
+load('{annotations_file}')
+
+matched.genes <- matchGenes(dmps, annotations,
+    promoterDist={promoterDist, type='{type}', skipExons={skipExons})
+write.csv(matched.genes, file='{matched_file}')
+EOF""".format(
+                directory=os.path.dirname(matched_file),
+                cores=config.param('annotate_positions', 'cluster_cpu').split('=')[-1],
+                dmp_file=dmp_file,
+                annotations_file=annotations_file,
+                promoterDist=config.param('annotate_positions', 'promoter_distance'),
+                type=config.param('annotate_positions', 'distance_type'),
+                skipExons=str(config.param('annotate_positions', 'skip_exons', type='boolean')).upper(),
+                matched_file=matched_file)
+
+            job = Job(
+                [dmp_file],
+                [matched_file],
+                [['annotate_regions', 'module_R']],
+                command=command,
+                name="annotate_positions." + contrast.name
+            )
+
+            jobs.append(job)
+
+        return jobs
+
 
 if __name__ == '__main__':
     EpiSeq()
