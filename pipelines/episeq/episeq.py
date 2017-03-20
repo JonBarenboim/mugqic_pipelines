@@ -252,7 +252,7 @@ class EpiSeq(Illumina):
             self.differential_methylated_regions,
             self.prepare_annotations,
             self.annotate_regions,
-            self.annotate_regions
+            self.annotate_positions
         ]
 
     # Pipeline steps start here
@@ -1459,7 +1459,7 @@ pandoc \\
             command = """\
 TEMPLATE_STR_FILE=differential_methylated_regions/$(date +%F)_template_var_strings.txt && \\
 mkdir -p {directory} && \\
-flock -x ${{TEMPLATE_STR_FILE}}.lock -c "echo \\"{entry}\\" >> ${{TEMPLATE_STR_FILE}}"
+flock -x ${{TEMPLATE_STR_FILE}}.lock -c "echo \\"{entry}\\" >> ${{TEMPLATE_STR_FILE}}"; \\
 R --no-save --no-restore <<-'EOF'
 suppressPackageStartupMessages(library(bumphunter))
 suppressPackageStartupMessages(library(BiSeq))
@@ -1492,8 +1492,8 @@ dmrs <- na.omit(dmrs)
 write.csv(dmrs$tab, "{dmrs_file}", quote=FALSE, row.names=FALSE)
 
 EOF
-mkdir -p {data_dir}
-cp -f {dmrs_file} {data_dir}
+mkdir -p {data_dir} && \\
+cp -f {dmrs_file} {data_dir}; \\
 table=$(cat $TEMPLATE_STR_FILE) && \\
 pandoc \\
     {report_template_dir}/{basename_report_file} \\
@@ -1561,17 +1561,20 @@ pandoc \\
 
     def prepare_annotations(self):
         annotations_file = "prepare_annotations/annotations.Rdata"
+        gtf_file = config.param('prepare_annotations', 'gtf')
 
         command = """\
 mkdir -p {directory} && \\
 R --no-save --no-restore <<-'EOF'
 suppressPackageStartupMessages(library(GenomicFeatures))
+suppressPackageStartupMessages(library(bumphunter))
 
 txdb <- makeTxDbFromGFF('{gtf_file}', format="gtf", organism='{organism}')
 
-# add 'chr' prefix to sequence names in txdb to match dmr/dmp format
+# If not present, add 'chr' prefix to sequence names in txdb to match dmr/dmp format
+regexp <- '^([XYM]|MT|[1-9][0-9]*)$'
 s <- seqlevels(txdb)
-s <- unlist(lapply(s, function(x) if (grepl('^[XYM1-9]', x)) paste('chr', x, sep='') else x))
+s <- unlist(lapply(s, function(x) if (grepl(regexp, x)) paste('chr', x, sep='') else x))
 txdb <- renameSeqlevels(txdb, s)
 
 annotations <- annotateTranscripts(txdb, by='tx', codingOnly=FALSE)
@@ -1579,29 +1582,40 @@ annotations <- annotateTranscripts(txdb, by='tx', codingOnly=FALSE)
 save(annotations, file='{annotations_file}')
 EOF""".format(
             directory=os.path.dirname(annotations_file),
-            gtf_file=config.param('annotate_regions', 'gtf'),
-            organism=config.param('annotate_regions', 'scientific_name').replace('_', ' '),
+            gtf_file=gtf_file,
+            organism=config.param('prepare_annotations', 'scientific_name').replace('_', ' '),
             annotations_file=annotations_file
         )
 
-        return Job (
-            [],
+        return [Job(
+            [gtf_file],
             [annotations_file],
             [['prepare_annotations', 'module_R']],
             command=command,
             name="perpare_annotations"
-        )
+        )]
 
     def annotate_regions(self):
-        jobs = []
         annotations_file = "prepare_annotations/annotations.Rdata"
+        report_file = 'report/EpiSeq.annotate_regions.md'
+        report_data = 'report/data/annotate_regions'
+        fill_in_entry = '| {contrast_name} | [download csv]({contrast_data}) |'
+
+        jobs = []
         for contrast in self.contrasts:
             dmr_file = os.path.join("differential_methylated_regions",
                                     contrast.name + "_RRBS_differential_methylated_regions.csv")
             matched_file = os.path.join("annotate_regions", contrast.name + ".matched_genes.csv")
 
+            report_entry = fill_in_entry.format(
+                contrast_name = contrast.name,
+                contrast_data = os.path.join(report_data, os.path.basename(matched_file))
+            )
+
             command = """\
+TEMPLATE_STR_FILE=annotate_regions/$(date +%F)_template_var_strings.txt && \\
 mkdir -p {directory} && \\
+flock -x ${{TEMPLATE_STR_FILE}}.lock -c "echo \\"{entry}\\" >> ${{TEMPLATE_STR_FILE}}"; \\
 R --no-save --no-restore <<-'EOF'
 suppressPackageStartupMessages(library(bumphunter))
 library(doParallel)
@@ -1611,10 +1625,24 @@ dmrs <- read.csv('{dmr_file}')
 
 load('{annotations_file}')
 
+# remove any regions that are on a sequence not in the annotations
+# required as matchGenes crashes if any regions fail to map to a gene
+dmrs <- dmrs[dmrs$chr %in% seqlevelsInUse(annotations), ]
+
 matched.genes <- matchGenes(dmrs, annotations,
     promoterDist={promoterDist}, type='{type}', skipExons={skipExons})
-write.csv(matched.genes, file='{matched_file}')
-EOF""".format(
+
+annotated <- cbind(dmrs, matched.genes)
+write.csv(annotated, file='{matched_file}')
+EOF
+mkdir -p {data_dir} && \\
+cp -f {matched_file} {data_dir} && \\
+table=$(cat $TEMPLATE_STR_FILE) && \\
+pandoc \\
+    {report_template_dir}/{basename_report_file} \\
+    --template {report_template_dir}/{basename_report_file} \\
+    --variable data_table="$table" \\
+    --to markdown > {report_file}""".format(
                 directory=os.path.dirname(matched_file),
                 cores=config.param('annotate_regions', 'cluster_cpu').split('=')[-1],
                 dmr_file=dmr_file,
@@ -1622,12 +1650,20 @@ EOF""".format(
                 promoterDist=config.param('annotate_regions', 'promoter_distance'),
                 type=config.param('annotate_regions', 'distance_type'),
                 skipExons=str(config.param('annotate_regions', 'skip_exons', type='boolean')).upper(),
-                matched_file=matched_file)
+                matched_file=matched_file,
+                entry=report_entry,
+                data_dir=report_data,
+                report_template_dir=self.report_template_dir,
+                basename_report_file=os.path.basename(report_file),
+                report_file=report_file)
 
             job = Job(
-                [dmr_file],
+                [dmr_file, annotations_file],
                 [matched_file],
-                [['annotate_regions', 'module_R']],
+                [
+                    ['annotate_regions', 'module_R'],
+                    ['annotate_regions', 'module_pandoc']
+                ],
                 command=command,
                 name="annotate_regions." + contrast.name
             )
@@ -1637,14 +1673,26 @@ EOF""".format(
         return jobs
 
     def annotate_positions(self):
-        jobs = []
         annotations_file = "prepare_annotations/annotations.Rdata"
+        report_file = 'report/EpiSeq.annotate_positions.md'
+        report_data = 'report/data/annotate_positions'
+        fill_in_entry = '| {contrast_name} | [download csv]({contrast_data}) |'
+
+        jobs = []
         for contrast in self.contrasts:
             dmp_file = os.path.join("differential_methylated_positions",
                                     contrast.name + "_RRBS_differential_methylated_pos.csv")
             matched_file = os.path.join("annotate_positions", contrast.name + ".matched_genes.csv")
 
+            report_entry = fill_in_entry.format(
+                contrast_name = contrast.name,
+                contrast_data = os.path.join(report_data, os.path.basename(matched_file))
+            )
+
             command = """\
+TEMPLATE_STR_FILE=annotate_positions/$(date +%F)_template_var_strings.txt && \\
+mkdir -p {directory} && \\
+flock -x ${{TEMPLATE_STR_FILE}}.lock -c "echo \\"{entry}\\" >> ${{TEMPLATE_STR_FILE}}"; \\
 mkdir -p {directory} && \\
 R --no-save --no-restore <<-'EOF'
 suppressPackageStartupMessages(library(bumphunter))
@@ -1655,10 +1703,24 @@ dmps <- read.csv('{dmp_file}')
 
 load('{annotations_file}')
 
+# remove any positions that are on a sequence not in the annotations
+# required as matchGenes crashes if any regions fail to map to a gene
+dmps <- dmps[dmps$seqnames %in% seqlevelsInUse(annotations), ]
+
 matched.genes <- matchGenes(dmps, annotations,
-    promoterDist={promoterDist, type='{type}', skipExons={skipExons})
-write.csv(matched.genes, file='{matched_file}')
-EOF""".format(
+    promoterDist={promoterDist}, type='{type}', skipExons={skipExons})
+
+annotated <- cbind(dmps, matched.genes)
+write.csv(annotated, file='{matched_file}')
+EOF
+mkdir -p {data_dir} && \\
+cp -f {matched_file} {data_dir} && \\
+table=$(cat $TEMPLATE_STR_FILE) && \\
+pandoc \\
+    {report_template_dir}/{basename_report_file} \\
+    --template {report_template_dir}/{basename_report_file} \\
+    --variable data_table="$table" \\
+    --to markdown > {report_file}""".format(
                 directory=os.path.dirname(matched_file),
                 cores=config.param('annotate_positions', 'cluster_cpu').split('=')[-1],
                 dmp_file=dmp_file,
@@ -1666,12 +1728,20 @@ EOF""".format(
                 promoterDist=config.param('annotate_positions', 'promoter_distance'),
                 type=config.param('annotate_positions', 'distance_type'),
                 skipExons=str(config.param('annotate_positions', 'skip_exons', type='boolean')).upper(),
-                matched_file=matched_file)
+                matched_file=matched_file,
+                entry=report_entry,
+                data_dir=report_data,
+                report_template_dir=self.report_template_dir,
+                basename_report_file=os.path.basename(report_file),
+                report_file=report_file)
 
             job = Job(
-                [dmp_file],
+                [dmp_file, annotations_file],
                 [matched_file],
-                [['annotate_regions', 'module_R']],
+                [
+                    ['annotate_positions', 'module_R'],
+                    ['annotate_positions', 'module_pandoc']
+                ],
                 command=command,
                 name="annotate_positions." + contrast.name
             )
