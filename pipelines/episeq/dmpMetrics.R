@@ -78,7 +78,7 @@ metrics <- list(total.pos=nrow(betas))
 metrics$num.dmp <- nrow(dmps)
 metrics$percent.differential <- (metrics$num.dmp / metrics$total.pos) * 100
 metrics <- as.data.frame(metrics)
-rownames(metrics) <- c(contrasßt.name)
+rownames(metrics) <- c(contrast.name)
 
 # append to metrics file
 dmp.metrics.file <- paste(output.dir, "dmp.metrics.csv", sep="/")

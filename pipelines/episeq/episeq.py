@@ -1577,6 +1577,12 @@ s <- seqlevels(txdb)
 s <- unlist(lapply(s, function(x) if (grepl(regexp, x)) paste('chr', x, sep='') else x))
 txdb <- renameSeqlevels(txdb, s)
 
+
+# use bioconductor supplied annotations data
+#library(TxDb.Hsapiens.UCSC.hg19.knownGene)
+#txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
+#
+
 annotations <- annotateTranscripts(txdb, by='tx', codingOnly=FALSE)
 
 save(annotations, file='{annotations_file}')
@@ -1598,7 +1604,7 @@ EOF""".format(
     def annotate_regions(self):
         annotations_file = "prepare_annotations/annotations.Rdata"
         report_file = 'report/EpiSeq.annotate_regions.md'
-        report_data = 'report/data/annotate_regions'
+        report_data = 'data/annotate_regions'
         fill_in_entry = '| {contrast_name} | [download csv]({contrast_data}) |'
 
         jobs = []
@@ -1652,7 +1658,7 @@ pandoc \\
                 skipExons=str(config.param('annotate_regions', 'skip_exons', type='boolean')).upper(),
                 matched_file=matched_file,
                 entry=report_entry,
-                data_dir=report_data,
+                data_dir=os.path.join(report_data),
                 report_template_dir=self.report_template_dir,
                 basename_report_file=os.path.basename(report_file),
                 report_file=report_file)
@@ -1664,6 +1670,7 @@ pandoc \\
                     ['annotate_regions', 'module_R'],
                     ['annotate_regions', 'module_pandoc']
                 ],
+                report_files=[report_file],
                 command=command,
                 name="annotate_regions." + contrast.name
             )
@@ -1675,7 +1682,7 @@ pandoc \\
     def annotate_positions(self):
         annotations_file = "prepare_annotations/annotations.Rdata"
         report_file = 'report/EpiSeq.annotate_positions.md'
-        report_data = 'report/data/annotate_positions'
+        report_data = 'data/annotate_positions'
         fill_in_entry = '| {contrast_name} | [download csv]({contrast_data}) |'
 
         jobs = []
@@ -1730,7 +1737,7 @@ pandoc \\
                 skipExons=str(config.param('annotate_positions', 'skip_exons', type='boolean')).upper(),
                 matched_file=matched_file,
                 entry=report_entry,
-                data_dir=report_data,
+                data_dir=os.path.join('report', report_data),
                 report_template_dir=self.report_template_dir,
                 basename_report_file=os.path.basename(report_file),
                 report_file=report_file)
@@ -1742,6 +1749,7 @@ pandoc \\
                     ['annotate_positions', 'module_R'],
                     ['annotate_positions', 'module_pandoc']
                 ],
+                report_files=[report_file],
                 command=command,
                 name="annotate_positions." + contrast.name
             )
