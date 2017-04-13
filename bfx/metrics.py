@@ -176,10 +176,10 @@ Rscript /hpf/largeprojects/ccmbio/jonBarenboim/mugqic_pipelines/pipelines/episeq
             contrast_name=contrast_name)
     )
 
-def dmr_metrics(dmr_file, beta_file, output_dir, contrast_name):
+def dmr_metrics(dmr_file, output_dir, contrast_name):
     graphs = ['dmrs_by_value', 'dmrs_by_area']
     return Job (
-        [dmr_file, beta_file],
+        [dmr_file],
         [os.path.join(output_dir, contrast_name + "." + graph + ".png") for graph in graphs],
         [
             ['dmr_metrics', 'module_mugqic_tools'],
@@ -187,9 +187,8 @@ def dmr_metrics(dmr_file, beta_file, output_dir, contrast_name):
         ],
         command="""\
 Rscript /hpf/largeprojects/ccmbio/jonBarenboim/mugqic_pipelines/pipelines/episeq/dmrMetrics.R \\
-    {dmr_file} {beta_file} {output_dir} {contast_name}""".format(
+    {dmr_file} {output_dir} {contast_name}""".format(
             dmr_file=dmr_file,
-            beta_file=beta_file,
             output_dir=output_dir,
             contast_name=contrast_name
         )

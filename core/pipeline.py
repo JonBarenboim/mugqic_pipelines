@@ -318,6 +318,7 @@ pandoc \\
   --toc \\
   --toc-depth=6 \\
   --template={self.report_template_dir}/template.html \\
+  --columns=800 \\
   --css=css/style.css \\
   --variable title="{title}" \\
   --filter pandoc-citeproc \\

@@ -252,7 +252,9 @@ class EpiSeq(Illumina):
             self.differential_methylated_regions,
             self.prepare_annotations,
             self.annotate_regions,
-            self.annotate_positions
+            self.annotate_positions,
+            self.position_enrichment_analysis,
+            self.region_enrichment_analysis
         ]
 
     # Pipeline steps start here
@@ -1184,11 +1186,25 @@ bismark_methylation_extractor {library_type} {other} --multicore {core} --output
         return jobs
 
     def methylation_values(self):
+        """
+    This step reads methylation values from bismark cov files. The BedGraph files are
+    read into a BSRaw object with the R package BiSeq. A BSRel object is generated from
+    the BSRaw object, and written to an R data file that is used by later steps. A csv
+    containing the methylation values is also created for user convenience
+
+    Input: Methylation data (methyl_calls/)
+    Output: A CSV file of methylation values in methylation_values/
+    Output: An RData file containing the BSRel object in methylation_values
+
+    :return: A list of jobs that need to be executed in this step.
+    :rtype: list(Job)
+        """
 
         report_file = 'report/EpiSeq.methylation_values.md'
         beta_metrics_file = os.path.join("methylation_values", "methylation_metrics.tsv")
         beta_beanplot_file = os.path.join('report', 'beta_distribution.png')
         beta_file = os.path.join('methylation_values', 'methylation_values.csv')
+        rrbs_file = os.path.join('methylation_values', 'rrbs.RData')
         report_data = 'report/data/methylation_values'
 
         cov_files = [os.path.join("methyl_calls", sample.name, sample.name + ".merged.deduplicated.bismark.cov.gz")
@@ -1201,19 +1217,32 @@ R --no-save --no-restore <<-'EOF'
 suppressPackageStartupMessages(library(BiSeq))
 suppressPackageStartupMessages(library(knitr))
 suppressPackageStartupMessages(library(minfi))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(reshape2))
+
 rrbs <- readBismark(c{samples}, colData=DataFrame(group=factor(c{group}), row.names=c{sample_names}))
 rrbs.filtered <- rrbs[apply(totalReads(rrbs), 1, function(x) any (x > {coverage})),]
 beta <- methLevel(rawToRel(rrbs.filtered))
 
 metrics <- data.frame(total.pos=apply(beta, 2, function(x) length(x[!is.na(x)]) ), row.names=colnames(beta))
 metrics$num.na <- apply(beta, 2, function(x) length(x[is.na(x)]) )
-cat(kable(metrics, row.names=TRUE), file="{beta_metrics_file}", sep="\n")
+cat(kable(metrics, row.names=TRUE), file="{beta_metrics_file}", sep="\\n")
 
-write.csv(beta, file="{beta_file}", quote=FALSE, row.names=FALSE)
+write.csv(beta, file="{beta_file}", quote=FALSE)
+rrbs <- rawToRel(rrbs.filtered)
+save(rrbs, file="{rrbs_file}")
 
-png('{beta_beanplot_file}')
-densityBeanPlot(as.matrix(beta))
-dev.off()
+theme_set(theme_grey(base_size=4) + theme(title=element_text(size=rel(1.1))))
+pixels <- 600; dpi <- 300; size <- pixels/dpi
+
+beta.melt <- melt(as.data.frame(beta))
+ggplot(beta.melt, aes(x=variable, y=value)) +
+    geom_violin(trim=FALSE, scale='count', adjust=0.4, size=0.2) +
+    scale_y_continuous(limits=c(-0.15, 1.15), breaks=c(0, 0.25, 0.5, 0.75, 1)) +
+    xlab("Sample") +
+    coord_flip() +
+    ggtitle("Distribution of Methylation Values for all Samples")
+ggsave('{beta_beanplot_file}', width=size, height=size)
 
 EOF
 
@@ -1230,8 +1259,9 @@ pandoc \\
             samples=tuple(cov_files),
             group=tuple(sample_group),
             sample_names=tuple([sample.name for sample in self.samples]),
-            coverage=config.param("methylation_value_metrics", "read_coverage"),
+            coverage=config.param("methylation_values", "read_coverage"),
             beta_file=beta_file,
+            rrbs_file=rrbs_file,
             beta_metrics_file=beta_metrics_file,
             data_dir=report_data,
             report_template_dir=self.report_template_dir,
@@ -1241,29 +1271,29 @@ pandoc \\
 
         job = Job(
             cov_files,
-            [beta_file],
+            [beta_file, rrbs_file],
             [
-                ["methylation_value_metrics", "module_R"],
-                ["methylation_value_metrics", "module_pandoc"]
+                ["methylation_values", "module_R"],
+                ["methylation_values", "module_pandoc"]
             ],
             command = command,
             report_files=[report_file],
-            name="methylation_value_metrics")
+            name="methylation_values")
 
         return [job]
 
     def differential_methylated_pos(self):
         """
     This step finds a list of differentially methylated CpG sites with respect to a categorical
-    phenotype (controls vs. cases). The BedGraph files from the previous methylation calling step are first combined
-    to a BSRaw object with the R package BiSeq. Then, the dmpFinder function from the R package minfi is used to
-    compute a F-test statistic on the beta values for the assayed CpGs in each sample. A p-value is then returned
-    for each site with the option of correcting them for multiple testing. Differential analysis is done for each
-    contrast specified in the design file
+    phenotype (controls vs. cases). A BSRel object generated in the methylation_values
+    is read into R. Then, the dmpFinder function from the R package minfi is used to
+    compute a F-test statistic on the beta values for the assayed CpGs in each sample.
+    A p-value is then returned for each site with the option of correcting them for multiple
+    testing. Differential analysis is done for each contrast specified in the design file.
 
     The values from the design files dictates how the samples are treated and compared.
 
-    Input: Methylation data (methyl_calls/)
+    Input: BSRel object (methylation_values/)
     Output: A CSV file in differential_methylated_positions/
 
     :return: A list of jobs that needs to be executed in this step.
@@ -1272,22 +1302,18 @@ pandoc \\
 
         # Report file variables
         report_file = 'report/EpiSeq.differential_methylated_pos.md'
-        report_data = 'report/data/differential_methylated_pos/'
+        report_data = 'data/differential_methylated_pos/'
         beta_file = os.path.join('methylation_values', 'methylation_values.csv')
-        fill_in_entry = '| {contrast_name} | {contrast_view} |'
+        rrbs_file = os.path.join("methylation_values", "rrbs.RData")
+        fill_in_entry = '| {contrast_name} | [download csv]({link}) |'
 
         jobs = []
         for contrast in self.contrasts:
             contrast_samples = [sample for sample in contrast.controls + contrast.treatments]
             sample_group = ["control" if sample in contrast.controls else "case" for sample in contrast_samples]
 
-            # Get file paths
-            cov_files = [os.path.join("methyl_calls", sample.name, sample.name + ".merged.deduplicated.bismark.cov.gz")
-                     for sample in contrast_samples]  # Input files
             dmps_file = os.path.join("differential_methylated_positions",
-                contrast.name + "_RRBS_differential_methylated_pos.csv")  # Output file
-            metrics_file = os.path.join("differential_methylated_positions",
-                contrast.name + "_metrics.tsv")
+                contrast.name + "_RRBS_differential_methylated_pos.csv")
 
             # Abort analysis if not enough samples (Will cause dmpFinder to throw an error)
             if len(contrast.controls) == 0 or contrast.treatments == 0 or len(contrast_samples) <= 2:  # No 1v1 or less
@@ -1295,23 +1321,19 @@ pandoc \\
                 continue
 
             report_entry = fill_in_entry.format(
-                contrast_name = contrast.name,
-                contrast_view = '[download csv]({link})'.format(
-                    link = os.path.join(report_data, os.path.basename(dmps_file))
-                )
-            )
+                contrast_name=contrast.name,
+                link=os.path.join(report_data, os.path.basename(dmps_file)))
 
             command = """\
 TEMPLATE_STR_FILE=differential_methylated_positions/$(date +%F)_template_var_strings.txt && \\
 mkdir -p {directory} && \\
 flock -x ${{TEMPLATE_STR_FILE}}.lock -c "echo \\"{entry}\\" >> ${{TEMPLATE_STR_FILE}}" && \\
 R --no-save --no-restore <<-'EOF'
-suppressPackageStartupMessages(library(BiSeq))
 suppressPackageStartupMessages(library(minfi))
+suppressPackageStartupMessages(library(BiSeq))
 
-rrbs <- readBismark(c{samples}, colData=DataFrame(group=factor(c{group}), row.names=c{sample_names}))
-rrbs.filtered <- rrbs[apply(totalReads(rrbs), 1, function(x) any(x > {coverage})),]
-beta <- methLevel(rawToRel(rrbs.filtered))
+load("{rrbs_file}")
+beta <- methLevel(rrbs)
 
 #Use M values to do statistical tests because they are more reliable
 #dmpFinder does not work with M values that are 0 or INF so the beta values must be shifted slightly
@@ -1321,17 +1343,17 @@ beta[beta == 0] = 0.000001
 beta[beta == 1] = 0.999999
 M <- log2(beta/(1-beta))
 
-dmp <- dmpFinder(M, pheno=colData(rrbs.filtered)[,"group"], type="categorical")
+pheno <- DataFrame(group=factor(c{group}), row.names=c{sample_names})
+dmp <- dmpFinder(M, pheno=pheno$group, type="categorical")
 dmp["pval.adjusted"] <- p.adjust(dmp[,"pval"], method = "{padjust_method}")
 dmp <- dmp[dmp["pval.adjusted"] < {pvalue},][c("pval", "pval.adjusted")]
 
 controls <- c({controls})
 cases <- c({cases})
-result = as.data.frame(rowRanges(rrbs.filtered))[1:4]
+result = as.data.frame(rowRanges(rrbs))[1:4]
 result["Avg Control Beta"] = rowMeans(beta[,controls])
 result["Avg Case Beta"] = rowMeans(beta[,cases])
 result["Avg Delta Beta"] = result[,"Avg Case Beta"] - result[,"Avg Control Beta"]
-result <- cbind(result, beta)
 result <- merge(result, dmp, by=0)
 
 result <- result[abs(result["Avg Delta Beta"]) > {delta_beta_threshold},]
@@ -1349,11 +1371,9 @@ pandoc \\
     --to markdown > {report_file}""".format(
                 entry=report_entry,
                 directory=os.path.dirname(dmps_file),
-                samples=tuple(cov_files),
+                rrbs_file=rrbs_file,
                 group=tuple(sample_group),
                 sample_names=tuple([sample.name for sample in contrast_samples]),
-                coverage=config.param("differential_methylated_pos", "read_coverage"),
-                beta_file=beta_file,
                 controls=', '.join(["'" + sample.name + "'" for sample in contrast.controls]),
                 cases=', '.join(["'" + sample.name + "'" for sample in contrast.treatments]),
                 padjust_method=config.param("differential_methylated_pos", "padjust_method"),
@@ -1361,14 +1381,14 @@ pandoc \\
                 delta_beta_threshold=config.param("differential_methylated_pos", "delta_beta_threshold",
                     type="float"),
                 dmps_file=dmps_file,
-                data_dir=report_data,
+                data_dir=os.path.join('report', report_data),
                 report_template_dir=self.report_template_dir,
                 basename_report_file=os.path.basename(report_file),
                 report_file=report_file,
                 contrast_name=contrast.name)
 
             job = Job(
-                cov_files,
+                [rrbs_file],
                 [dmps_file],
                 [
                     ["differential_methylated_pos", "module_R"],
@@ -1422,11 +1442,11 @@ pandoc \\
 
     def differential_methylated_regions(self):
         """
-    Similar to differential_methylated_positions, this step looks at methylation patterns on a larger, regional
-    level. This step compares large-scale differences in methylation as opposed to comparing local methylation
-    sites.
+    Similar to differential_methylated_positions, this step looks at methylation patterns
+    on a larger, regional level. This step compares large-scale differences in
+    methylation as opposed to comparing local methylation sites.
 
-    Input: Methylation data (methyl_calls/)
+    Input: BSRel object (methylation_values/)
     Output: A CSV file in differential_methylated_regions/
 
     :return: A list of jobs that needs to be executed in this step.
@@ -1434,27 +1454,22 @@ pandoc \\
     """
         # Report file variables
         report_file = 'report/EpiSeq.differential_methylated_regions.md'
-        report_data = 'report/data/differential_methylated_regions/'
-        fill_in_entry = '| {contrast_name} | {contrast_view} |'
-        beta_file = os.path.join("methylation_values", "methylation_values.csv")
+        report_data = 'data/differential_methylated_regions/'
+        rrbs_file = os.path.join("methylation_values", "rrbs.RData")
+        fill_in_entry = '| {contrast_name} | [download csv]({link}) |'
 
         jobs = []
         for contrast in self.contrasts:
             # Determine the control and case samples to include in the analysis from the contrast
             contrast_samples = [sample for sample in contrast.controls + contrast.treatments]
-
             sample_group = ["control" if sample in contrast.controls else "case" for sample in contrast_samples]
-            cov_files = [os.path.join("methyl_calls", sample.name, sample.name + ".merged.deduplicated.bismark.cov.gz")
-                     for sample in contrast_samples]  # Input files
+
             dmrs_file = os.path.join("differential_methylated_regions",
                 contrast.name + "_RRBS_differential_methylated_regions.csv")
 
             report_entry = fill_in_entry.format(
                 contrast_name = contrast.name,
-                contrast_view = '[download csv]({link})'.format(
-                    link = os.path.join(report_data, os.path.basename(dmrs_file))
-                )
-            )
+                link=os.path.join(report_data, os.path.basename(dmrs_file)))
 
             command = """\
 TEMPLATE_STR_FILE=differential_methylated_regions/$(date +%F)_template_var_strings.txt && \\
@@ -1466,13 +1481,12 @@ suppressPackageStartupMessages(library(BiSeq))
 library(doParallel)
 registerDoParallel(cores={cores})
 
-rrbs <- readBismark(c{samples}, colData=DataFrame(group=c{group}, row.names=c{sample_names}))
-rrbs.filtered <- rrbs[apply(totalReads(rrbs), 1, function(x) any(x > {coverage})),]
-beta <- methLevel(rawToRel(rrbs.filtered))
-chr <- as.character(seqnames(rowRanges(rrbs.filtered)))
-pos <- start(ranges(rowRanges(rrbs.filtered)))
-pheno <- colData(rrbs.filtered)[,"group"]
-designM <- model.matrix(~pheno)
+load("{rrbs_file}")
+beta <- methLevel(rrbs)
+chr <- as.character(seqnames(rowRanges(rrbs)))
+pos <- start(ranges(rowRanges(rrbs)))
+pheno <- DataFrame(group=factor(c{group}), row.names=c{sample_names})
+designM <- model.matrix(~pheno$group)
 
 dmrs <- bumphunterEngine(beta,
                          chr=chr,
@@ -1488,8 +1502,9 @@ dmrs <- bumphunterEngine(beta,
                          maxGap=500)
 
 dmrs <- na.omit(dmrs)
+dmrs <- dmrs$tab[dmrs$tab$L >= {length_cutoff}, ]
 
-write.csv(dmrs$tab, "{dmrs_file}", quote=FALSE, row.names=FALSE)
+write.csv(dmrs, "{dmrs_file}", quote=FALSE, row.names=FALSE)
 
 EOF
 mkdir -p {data_dir} && \\
@@ -1502,22 +1517,22 @@ pandoc \\
     --to markdown > {report_file}""".format(
                 entry=report_entry,
                 directory=os.path.dirname(dmrs_file),
-                samples=tuple(cov_files),
+                rrbs_file=rrbs_file,
                 group=tuple(sample_group),
-                coverage=config.param("differential_methylated_regions", "read_coverage", type="int"),
                 sample_names=tuple([sample.name for sample in contrast_samples]),
                 cores=config.param('bismark_methylation_caller', 'cluster_cpu').split('=')[-1],
                 delta_beta_threshold=config.param("differential_methylated_regions", "delta_beta_threshold",
                     type="float"),
+                length_cutoff=config.param("differential_methylated_regions", "length_threshold", type="float"),
                 permutations=config.param("differential_methylated_regions", "permutations", type="int"),
                 dmrs_file=dmrs_file,
-                data_dir=report_data,
+                data_dir=os.path.join('report', report_data),
                 report_template_dir=self.report_template_dir,
                 basename_report_file=os.path.basename(report_file),
                 report_file=report_file)
 
             job = Job(
-                cov_files,
+                [rrbs_file],
                 [dmrs_file],
                 [
                     ["differential_methylated_regions", "module_R"],
@@ -1531,7 +1546,7 @@ pandoc \\
 
             jobs.append(job)
 
-            metrics_job = metrics.dmr_metrics(dmrs_file, beta_file, 'report', contrast.name)
+            metrics_job = metrics.dmr_metrics(dmrs_file, 'report', contrast.name)
             metrics_report = 'report/EpiSeq.dmr_metrics.md'
             metrics_job.report_files = [metrics_report]
 
@@ -1560,6 +1575,18 @@ pandoc \\
         return jobs
 
     def prepare_annotations(self):
+        """
+    This step prepares annotations that are used in later steps. The R package GenomicFeatures
+    is used to read a gtf file and build a transcript database. The R library Bumphunter
+    then creates a GenomicRanges object containing transcript annotations. The
+    GenomicRanges object is written into an RData file that is used in later steps
+
+    Input: gtf file
+    Output: An RData file containing the GenomicRanges object in prepare_annotations/
+
+    :return: A list of jobs that need to be executed in this step
+    :rtype: list(Job)
+        """
         annotations_file = "prepare_annotations/annotations.Rdata"
         gtf_file = config.param('prepare_annotations', 'gtf')
 
@@ -1571,17 +1598,17 @@ suppressPackageStartupMessages(library(bumphunter))
 
 txdb <- makeTxDbFromGFF('{gtf_file}', format="gtf", organism='{organism}')
 
+# use bioconductor maintained annotations data
+library(TxDb.Hsapiens.UCSC.hg19.knownGene)
+txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
+#
+
 # If not present, add 'chr' prefix to sequence names in txdb to match dmr/dmp format
 regexp <- '^([XYM]|MT|[1-9][0-9]*)$'
 s <- seqlevels(txdb)
 s <- unlist(lapply(s, function(x) if (grepl(regexp, x)) paste('chr', x, sep='') else x))
 txdb <- renameSeqlevels(txdb, s)
 
-
-# use bioconductor supplied annotations data
-#library(TxDb.Hsapiens.UCSC.hg19.knownGene)
-#txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
-#
 
 annotations <- annotateTranscripts(txdb, by='tx', codingOnly=FALSE)
 
@@ -1602,6 +1629,18 @@ EOF""".format(
         )]
 
     def annotate_regions(self):
+        """
+    This step annotates regions that were identified in the differential_methylated_regions
+    step with annotations that were created in the prepare_annotations step. The function
+    matchGenes from the R package bumphunter is used to annotate the regions.
+
+    Input: GenomicRanges object containing annotations (prepare_annotations/)
+    Input: A CSV file containing regions (differential_methylated_regions/)
+    Output: A CSV file in annotate_regions/
+
+    :return: A list of jobs that need to be executed in this step.
+    :rtype: list(Job)
+        """
         annotations_file = "prepare_annotations/annotations.Rdata"
         report_file = 'report/EpiSeq.annotate_regions.md'
         report_data = 'data/annotate_regions'
@@ -1611,7 +1650,7 @@ EOF""".format(
         for contrast in self.contrasts:
             dmr_file = os.path.join("differential_methylated_regions",
                                     contrast.name + "_RRBS_differential_methylated_regions.csv")
-            matched_file = os.path.join("annotate_regions", contrast.name + ".matched_genes.csv")
+            matched_file = os.path.join("annotate_regions", contrast.name + "_matched_genes.csv")
 
             report_entry = fill_in_entry.format(
                 contrast_name = contrast.name,
@@ -1639,7 +1678,7 @@ matched.genes <- matchGenes(dmrs, annotations,
     promoterDist={promoterDist}, type='{type}', skipExons={skipExons})
 
 annotated <- cbind(dmrs, matched.genes)
-write.csv(annotated, file='{matched_file}')
+write.csv(annotated, file='{matched_file}', row.names=FALSE)
 EOF
 mkdir -p {data_dir} && \\
 cp -f {matched_file} {data_dir} && \\
@@ -1658,7 +1697,7 @@ pandoc \\
                 skipExons=str(config.param('annotate_regions', 'skip_exons', type='boolean')).upper(),
                 matched_file=matched_file,
                 entry=report_entry,
-                data_dir=os.path.join(report_data),
+                data_dir=os.path.join('report', report_data),
                 report_template_dir=self.report_template_dir,
                 basename_report_file=os.path.basename(report_file),
                 report_file=report_file)
@@ -1680,6 +1719,18 @@ pandoc \\
         return jobs
 
     def annotate_positions(self):
+        """
+    Similar to the annotate_regions step, this step annotates positions that
+    were identified in the differential_methylated_positions step with annotations
+    that were created in the prepare_annotations step
+
+    Input: GenomicRanges object containing annotations (prepare_annotations/)
+    Input: A CSV file containing positions (differential_methylated_positions/)
+    Output: A CSV file in annotate_positions/
+
+    :return: A list of jobs that need to be executed in this step.
+    :rtype: list(Job)
+        """
         annotations_file = "prepare_annotations/annotations.Rdata"
         report_file = 'report/EpiSeq.annotate_positions.md'
         report_data = 'data/annotate_positions'
@@ -1689,7 +1740,7 @@ pandoc \\
         for contrast in self.contrasts:
             dmp_file = os.path.join("differential_methylated_positions",
                                     contrast.name + "_RRBS_differential_methylated_pos.csv")
-            matched_file = os.path.join("annotate_positions", contrast.name + ".matched_genes.csv")
+            matched_file = os.path.join("annotate_positions", contrast.name + "_matched_genes.csv")
 
             report_entry = fill_in_entry.format(
                 contrast_name = contrast.name,
@@ -1718,7 +1769,7 @@ matched.genes <- matchGenes(dmps, annotations,
     promoterDist={promoterDist}, type='{type}', skipExons={skipExons})
 
 annotated <- cbind(dmps, matched.genes)
-write.csv(annotated, file='{matched_file}')
+write.csv(annotated, file='{matched_file}', row.names=FALSE)
 EOF
 mkdir -p {data_dir} && \\
 cp -f {matched_file} {data_dir} && \\
@@ -1753,6 +1804,364 @@ pandoc \\
                 command=command,
                 name="annotate_positions." + contrast.name
             )
+
+            jobs.append(job)
+
+        return jobs
+
+    def position_enrichment_analysis(self):
+        """
+        This step tests overlap of positions identified in the differential_methylated_pos step against
+        region sets selected from the LOLAcore database. The R package LOLA is used to test for enichment,
+        performing a Fisher's tests to find significantly enriched region sets
+
+        Input: BSRel object (methylation_values/)
+        Input: A CSV containing positions (differential_methylated_pos/)
+        Output: A CSV file in position_enrichment_analysis/
+
+        :return: A list of jobs that need to be executed in this step
+        :rtype: list(Job)
+        """
+
+        report_file = 'report/EpiSeq.enrichment_analysis.md'
+        report_data = 'data/position_enrichment_analysis'
+        fill_in_entry = '| {contrast_name} | Positions | [download analysis results]({results_link}) |'
+
+        jobs = []
+        for contrast in self.contrasts:
+            rrbs_file = os.path.join("methylation_values", "rrbs.RData")
+
+            analysis_file = os.path.join("position_enrichment_analysis",
+                                         contrast.name + "_position_enrichment_analysis.csv")
+
+            report_entry = fill_in_entry.format(
+                contrast_name=contrast.name,
+                results_link=os.path.join(report_data, os.path.basename(analysis_file)))
+
+            dmps_file = os.path.join("differential_methylated_positions",
+                contrast.name + "_RRBS_differential_methylated_pos.csv")
+
+
+            command="""\
+TEMPLATE_STR_FILE=position_enrichment_analysis/$(date +%F)_template_var_strings.txt && \\
+TEMPLATE_STR_FILE2=region_enrichment_analysis/$(date +%F)_template_var_strings.txt && \\
+mkdir -p {directory} region_enrichment_analysis && \\
+touch $TEMPLATE_STR_FILE2 && \\
+flock -x ${{TEMPLATE_STR_FILE}}.lock -c "echo \\"{entry}\\" >> $TEMPLATE_STR_FILE" && \\
+R --vanilla <<-'EOF'
+suppressPackageStartupMessages(library(BiSeq))
+suppressPackageStartupMessages(library(data.table))
+suppressPackageStartupMessages(library(GenomicRanges))
+suppressPackageStartupMessages(library(LOLA, lib.loc='/home/jonBarenboim/R/x86_64-pc-linux-gnu-library/3.3'))
+source('/hpf/largeprojects/ccmbio/jonBarenboim/mugqic_pipelines/pipelines/episeq/LOLAsearch.r')
+
+load('{rrbs_file}')
+dmps <- read.csv('{dmps_file}')
+universe <- rowRanges(rrbs)
+userset <- granges(GRanges(dmps))
+
+# The universe should containe every region in the dmps. If not, something probably went wrong in earlier steps
+tryCatch(
+    {{ checkUniverseAppropriateness(userset, universe) }},
+    warning = function(w) {{ stop("userset is not a subset of universe") }},
+    error = function(e) {{ stop("userset is not a subset of universe") }})
+
+regionDB <- buildRegionDB(rootdir='{LOLA_root}', genome='{LOLA_genome}', collection=c{LOLA_collection}, 
+                          filename=c{LOLA_filename}, description=c{LOLA_description}, any=c{LOLA_any})
+LOLAresult <- runLOLA(userset, universe, regionDB)
+
+write.csv(LOLAresult, file='{analysis_file}', row.names=FALSE)
+
+EOF
+
+mkdir -p {data_dir} && \\
+cp -f {analysis_file} {data_dir} && \\
+table=$(cat $TEMPLATE_STR_FILE $TEMPLATE_STR_FILE2) && \\
+pandoc \\
+    {report_template_dir}/{basename_report_file} \\
+    --template {report_template_dir}/{basename_report_file} \\
+    --variable data_table="$table" \\
+    --to markdown > {report_file}""".format(
+                directory=os.path.dirname(analysis_file),
+                entry=report_entry,
+                rrbs_file=rrbs_file,
+                dmps_file=dmps_file,
+                LOLA_root=config.param('position_enrichment_analysis', 'LOLA_dir'),
+                LOLA_genome=config.param('position_enrichment_analysis', 'assembly'),
+                LOLA_collection=tuple(config.param('position_enrichment_analysis', 'collection', type='list')),
+                LOLA_filename=tuple(config.param('position_enrichment_analysis', 'filename', type='list')),
+                LOLA_description=tuple(config.param('position_enrichment_analysis', 'description', type='list')),
+                LOLA_any=tuple(config.param('position_enrichment_analysis', 'any', type='list')),
+                analysis_file=analysis_file,
+                data_dir=os.path.join('report', report_data),
+                report_template_dir=self.report_template_dir,
+                basename_report_file=os.path.basename(report_file),
+                report_file=report_file,
+                contrast_name=contrast.name)
+
+            job = Job(
+                [dmps_file, rrbs_file],
+                [analysis_file],
+                [
+                    ["position_enrichment_analysis", "module_R"],
+                    ["position_enrichment_analysis", "module_pandoc"]
+                ],
+                command=command,
+                report_files=[report_file],
+                name="position_enrichment_analysis." + contrast.name)
+            jobs.append(job)
+
+        return jobs
+
+    def region_enrichment_analysis(self):
+        """
+        Similar to position_enrichment_analysis, this step uses the R package LOLA to test for 
+        enriched regions identified in the differential_methylated_regions step
+
+        Input: BSRel object (methylation_values/)
+        Input: A CSV containing regions (differential_methylated_regions/)
+        Output: A VSC file in region_enrichment_analysis/
+
+        :return: A list of jobs that need to be executed in this step
+        :rtype: list(Job)
+        """
+
+        report_file = 'report/EpiSeq.enrichment_analysis.md'
+        report_data = 'data/region_enrichment_analysis'
+        fill_in_entry = '| {contrast_name} | Regions | [download analysis results]({results_link}) |'
+
+        jobs = []
+        for contrast in self.contrasts:
+            rrbs_file = os.path.join("methylation_values", "rrbs.RData")
+
+            analysis_file = os.path.join("region_enrichment_analysis",
+                                         contrast.name + "_region_enrichment_analysis.csv")
+
+            report_entry = fill_in_entry.format(
+                contrast_name=contrast.name,
+                results_link=os.path.join(report_data, os.path.basename(analysis_file)))
+
+            dmrs_file = os.path.join("differential_methylated_regions",
+                contrast.name + "_RRBS_differential_methylated_regions.csv")
+
+            command="""\
+TEMPLATE_STR_FILE=region_enrichment_analysis/$(date +%F)_template_var_strings.txt && \\
+TEMPLATE_STR_FILE2=position_enrichment_analysis/$(date +%F)_template_var_strings.txt && \\
+mkdir -p {directory} position_enrichment_analysis && \\
+touch $TEMPLATE_STR_FILE2 && \\
+flock -x ${{TEMPLATE_STR_FILE}}.lock -c "echo \\"{entry}\\" >> $TEMPLATE_STR_FILE" && \\
+R --vanilla <<-'EOF'
+
+suppressPackageStartupMessages(library(BiSeq))
+suppressPackageStartupMessages(library(GenomicRanges))
+suppressPackageStartupMessages(library(data.table))
+suppressPackageStartupMessages(library(LOLA, lib.loc='/home/jonBarenboim/R/x86_64-pc-linux-gnu-library/3.3/'))
+source('/hpf/largeprojects/ccmbio/jonBarenboim/mugqic_pipelines/pipelines/episeq/LOLAsearch.r')
+
+load('{rrbs_file}')
+dmrs <- read.csv('{dmrs_file}')
+universe <- rowRanges(rrbs)
+userset <- granges(GRanges(dmrs))
+
+# The universe should contain every region in the dmrs. If not, something probably went wrong in earlier steps
+tryCatch(
+    {{ checkUniverseAppropriateness(userset, universe) }},
+    warning = function(w) {{ stop("userset is not a subset of universe") }},
+    error = function(e) {{ stop("userset is not a subset of universe") }})
+
+regionDB <- buildRegionDB(rootdir='{LOLA_root}', genome='{LOLA_genome}', collection=c{LOLA_collection},
+                          filename=c{LOLA_filename}, description=c{LOLA_description}, any=c{LOLA_any})
+
+LOLAresult <- runLOLA(userset, universe, regionDB)
+
+write.csv(LOLAresult, file='{analysis_file}', row.names=FALSE)
+
+EOF
+
+mkdir -p {data_dir} && \\
+cp -f {analysis_file} {data_dir} && \\
+table=$(cat $TEMPLATE_STR_FILE2 $TEMPLATE_STR_FILE) && \\
+pandoc \\
+    {report_template_dir}/{basename_report_file} \\
+    --template {report_template_dir}/{basename_report_file} \\
+    --variable data_table="$table" \\
+    --to markdown > {report_file}""".format(
+                directory=os.path.dirname(analysis_file),
+                entry=report_entry,
+                rrbs_file=rrbs_file,
+                dmrs_file=dmrs_file,
+                LOLA_root=config.param('region_enrichment_analysis', 'LOLA_dir'),
+                LOLA_genome=config.param('region_enrichment_analysis', 'genome'),
+                LOLA_collection=tuple(config.param('region_enrichment_analysis', 'collection', type='list')),
+                LOLA_filename=tuple(config.param('region_enrichment_analysis', 'filename', type='list')),
+                LOLA_description=tuple(config.param('region_enrichment_analysis', 'description', type='list')),
+                LOLA_any=tuple(config.param('region_enrichment_analysis', 'any', type='list')),
+                analysis_file=analysis_file,
+                data_dir=os.path.join('report', report_data),
+                report_template_dir=self.report_template_dir,
+                basename_report_file=os.path.basename(report_file),
+                report_file=report_file,
+                contrast_name=contrast.name)
+
+            job = Job(
+                [dmrs_file, rrbs_file],
+                [analysis_file],
+                [
+                    ["region_enrichment_analysis", "module_R"],
+                    ["region_enrichment_analysis", "module_pandoc"]
+                ],
+                command=command,
+                report_files=[report_file],
+                name="region_enrichment_analysis." + contrast.name)
+            jobs.append(job)
+
+        return jobs
+
+    def enrichment_analysis(self):
+        report_file = 'report/EpiSeq.enrichment_analysis.md'
+        report_data = 'data/enrichment_analysis/'
+        fill_in_entry = '| {contrast_name} | [download analysis results]({results_link}) | [download metadata]({metadata_link})'
+
+        jobs = []
+        for contrast in self.contrasts:
+            sample_names = [sample.name for sample in contrast.controls + contrast.treatments]
+            cov_files = [os.path.join("methyl_calls", sample, sample + ".merged.deduplicated.bismark.cov.gz")
+                    for sample in sample_names]
+
+            analysis_file = os.path.join("enrichment_analysis",
+                                         contrast.name + "_enrichment_analysis.csv")
+            metadata_file = os.path.join("enrichment_analysis",
+                                         contrast.name + "_metadata.csv")
+
+            report_entry = fill_in_entry.format(
+                contrast_name=contrast.name,
+                results_link=os.path.join(report_data, os.path.basename(analysis_file)),
+                metadata_link=os.path.join(report_data, os.path.basename(metadata_file)))
+
+            dmps_file = os.path.join("differential_methylated_positions",
+                contrast.name + "_RRBS_differential_methylated_pos.csv")
+            dmrs_file = os.path.join("differential_methylated_regions",
+                contrast.name + "_RRBS_differential_methylated_regions.csv")
+
+            command="""\
+TEMPLATE_STR_FILE=enrichment_analysis/$(date +%F)_template_var_strings.txt && \\
+mkdir -p {directory} && \\
+flock -x ${{TEMPLATE_STR_FILE}}.lock -c "echo \\"{entry}\\" >> ${{TEMPLATE_STR_FILE}}" && \\
+R --no-save --no-restore <<-'EOF'
+
+suppressPackageStartupMessages(library(BiSeq))
+suppressPackageStartupMessages(library(GenomicRanges))
+suppressPackageStartupMessages(library(data.table))
+### DeepBlueR and LOLA not installed on system
+suppressPackageStartupMessages(library(DeepBlueR, lib.loc='/home/jonBarenboim/R/x86_64-pc-linux-gnu-library/3.3/'))
+suppressPackageStartupMessages(library(LOLA, lib.loc='/home/jonBarenboim/R/x86_64-pc-linux-gnu-library/3.3/'))
+
+
+# get all regions to use as universe for LOLA
+sample.files <- c{sample_files}
+sample.names <- c{sample_names}
+rrbs <- readBismark(sample.files, colData=DataFrame(group=sample.names, row.names=sample.names))
+universe <- rowRanges(rrbs)
+
+
+# load dmrs and dmps and combine into one GRanges object
+dmrs <- read.csv('{dmrs_file}')
+dmps <- read.csv('{dmps_file}')
+dmps <- GRanges(dmps[c('seqnames', 'start', 'end')])
+dmrs <- GRanges(dmrs[c('chr', 'start', 'end')])
+userset <- c(dmps, dmrs)
+
+# the universe should contain every region in the dmps/dmrs
+# if it doesnt, something probably went wrong in earlier steps!
+tryCatch(
+    {{checkUniverseAppropriateness(userset, universe)}},
+    warning = function(warn) {{stop("userset is not a subset of universe. \
+Something went wrong when selecting positions or regions!")}})
+
+# get annotations and metadata from DeepBlue
+annotations.names <- c{annotation_names}
+annotations.list <- deepblue_list_annotations(genome="{genome}")
+annotations.ids <- annotations.list[annotations.list$name %in% annotations.names]$id
+annotations.request.id <- deepblue_select_annotations(annotation_name=annotations.names, genome="{genome}")
+request.id <- deepblue_get_regions(query_id=annotations.request.id,
+                                    output_format="CHROMOSOME,START,END,STRAND,@NAME")
+
+if (length(annotations.ids) == 0) {{
+    stop("No valid annotation names were supplied")
+}}
+
+bad.annotations <- annotations.names[!annotations.names %in% annotations.list$name]
+if (length(bad.annotations) > 0) {{
+    warning(paste("The following supplied annotations do not exist in DeepBlue for the given genome:",
+              paste(bad.annotations, collapse=", "),sep="\n"))
+}}
+
+
+annotations.metadata <- deepblue_meta_data_to_table(annotations.ids)
+#    ensure annotation metadata is in the same order as annotations.names
+name.order <- sapply(annotations.metadata$name, function(x) which(annotations.names == x))
+annotations.metadata <- annotations.metadata[name.order, ]
+rownames(annotations.metadata) <- NULL
+
+# allow multicore processing
+# setLapplyAlias(cores={cores}) #TODO
+
+# select_annotations request is asynchronous. Wait until it is done, then fetch results
+annotations.data <- deepblue_download_request_data(request.id)
+
+# create regionDB
+regionDB <- list()
+regionDB$regionGRL <- GRangesList(lapply(annotations.names, function(x){{ granges(annotations.data[mcols(annotations.data)[['@NAME']] == x, ]) }} ))
+regionDB$collectionAnno <- data.table(collectionName="DeepBlue_annotations", source="DeepBlue", description="Annotations downloaded from DeepBlue")
+regionDB$regionAnno <- data.table(filename=annotations.metadata$name, cellType=NA,
+                                  description=NA, tissue=NA,
+                                  dataSource="DeepBlue", antibody=NA, treatment=NA,
+                                  collection="DeepBlue_annotations",
+                                  size=sapply(regionDB$regionGRL, length),
+                                  dbset=1:nrow(annotations.metadata))
+
+
+LOLAresult <- runLOLA(userset, universe, regionDB)
+write.csv(LOLAresult, file='{analysis_file}')
+write.csv(annotations.metadata, file='{metadata_file}')
+EOF
+
+mkdir -p {data_dir} && \\
+cp -f {analysis_file} {metadata_file} {data_dir}; \\
+table=$(cat $TEMPLATE_STR_FILE) && \\
+pandoc \\
+    {report_template_dir}/{basename_report_file} \\
+    --template {report_template_dir}/{basename_report_file} \\
+    --variable data_table="$table" \\
+    --to markdown > {report_file} """.format(
+                directory=os.path.dirname(analysis_file),
+                entry=report_entry,
+                sample_files=tuple(cov_files),
+                sample_names=tuple(sample_names),
+                dmrs_file=dmrs_file,
+                dmps_file=dmps_file,
+                annotation_names=tuple([x.strip() for x in config.param('enrichment_analysis','annotations', type='list')]),
+                genome=config.param('enrichment_analysis', 'genome'),
+                cores=config.param('enrichment_analysis', 'cluster_cpu').split('=')[-1],
+                analysis_file=analysis_file,
+                metadata_file=metadata_file,
+                data_dir=os.path.join('report', report_data),
+                report_template_dir=self.report_template_dir,
+                basename_report_file=os.path.basename(report_file),
+                report_file=report_file,
+                contrast_name=contrast.name)
+
+
+            job = Job(
+                cov_files + [dmps_file, dmrs_file],
+                [analysis_file, metadata_file],
+                [
+                    ["differential_methylated_regions", "module_R"],
+                    ["differential_methylated_regions", "module_pandoc"]
+                ],
+                command=command,
+                report_files=[report_file],
+                name="enrichment_analysis." + contrast.name)
 
             jobs.append(job)
 

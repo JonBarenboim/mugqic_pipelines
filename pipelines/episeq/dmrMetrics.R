@@ -4,31 +4,25 @@ library(plyr)
 library(knitr)
 
 # usage:
-# Rscript dmpMetrics.R dmr_file beta_file output_dir contrast_name
+# Rscript dmpMetrics.R dmr_file output_dir contrast_name
 
 # Helper functions
-parse.input.list <- function(x) {
-    x <- (strsplit(gsub('\\[', '', gsyb('\\]', '', input.files)), ', ')[[1]])
-    unlist(lapply(x, function(x) { gsub("'", "", gsub('"', "", x)) }))
-}
-saveimg <- function(plot.name){
+saveimg <- function(plot.name, width=size, height=size){
     filename <- paste(output.dir, "/", contrast.name, ".", plot.name, ".png", sep="")
-    ggsave(filename, units="in", width=size, height=size)
+    ggsave(filename, units="in", width=width, height=height)
 }
 
 # Set font size
-theme_set(theme_grey(base_size=5))
+theme_set(theme_grey(base_size=4) + theme(title=element_text(size=rel(1.1))))
 
-# Parse arguments
+# Read arguments
 args = commandArgs(trailingOnly=TRUE)
 dmr.file <- args[1]
-beta.file <- args[2]
-output.dir <- args[3]
-contrast.name <- args[4]
+output.dir <- args[2]
+contrast.name <- args[3]
 
 # Read in data
 dmrs <- read.csv(dmr.file)
-betas <- read.csv(beta.file)
 
 # image parameters
 dpi <- 300
@@ -37,32 +31,21 @@ size <- pixels / dpi
 
 # dmrs by value
 ggplot(dmrs, aes(x=value)) + 
-    geom_density() + 
+    geom_histogram(binwidth=0.02) + 
     scale_x_continuous(name="Average difference in methylation", breaks=seq(from=-1, to=1, by=0.25)) +
-    ggtitle("Differentially Methylated Regions by Average Difference in Methylation")
+    ggtitle("DMRs by Average Difference in Methylation")
 saveimg("dmrs_by_value")
 
 # dmrs by area
-# Group largest 1% as one bin, and divide the rest of the data into 20 bins
-area <- dmrs$area
-len <- length(area)
-percentile99 <- area[order(area, decreasing=TRUE)][len / 100]
-binwidth <- round(percentile99 / 20, digits=1)
-breaks <- seq(from = 0, to = binwidth * 20, by = binwidth)
-breaks <- c(breaks, ceiling(max(area)))
+break_func <- function(limits) {
+    limits <- c(floor(limits[1]), ceiling(limits[2]))
+    min <- if(limits[1] %% 2 == 0) limits[1] else limits[1] - 1
+    max <- if(limits[2] %% 2 == 0) limits[2] else limits[2] + 1
+    seq(from=min, to=max, by=2)
+}
 ggplot(dmrs, aes(x=area)) + 
-    geom_histogram(binwidth=binwidth) +
-    ggplot("Differentially Methylated Regions by Area of the Bump")
+    geom_histogram(binwidth=0.2) +
+    scale_x_continuous(breaks=break_func) + 
+    ggtitle("DMRs by Area of the Bump")
 saveimg("dmrs_by_area")
 
-###### DMRS BY AREA - VARIABLE BIN WIDTH !?!?!?!?
-# area <- dmrs$area
-# len <- length(area)
-# percentile99 <- area[order(area, decreasing=TRUE)][len / 100]
-# binwidth <- round(percentile99 / 10, digits=1)
-# breaks <- c(seq(from=0, to=binwidth*10, by=binwidth), ceiling(max(area)))
-# dmrs$bin <- cut(dmrs$area, breaks)
-# ggplot(dmrs, aes(x=bin)) +
-#     geom_histogram(stat='count') +
-#     ggtitle("Differentially Methylated Regions by Area of the Bump")
-# saveimg("dmrs_by_area")

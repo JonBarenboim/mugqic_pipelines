@@ -9,15 +9,15 @@ library(knitr)
 # Helper functions
 parse.input.list <- function(x) {
     x <- (strsplit(gsub('\\[', '', gsub('\\]', '', x)), ', ')[[1]])
-    unlist(lapply(x, function(x) { gsub("'", "", gsub('"', "", x)) }))
+    sapply(x, function(x) { gsub("'", "", gsub('"', "", x)) })
 }
-saveimg <- function(plot.name){
+saveimg <- function(plot.name, width=size, height=size){
     filename <- paste(output.dir, "/", contrast.name, ".", plot.name, ".png", sep="")
-    ggsave(filename, units="in", width=size, height=size)
+    ggsave(filename, units="in", width=width, height=height)
 } 
 
 # Set font size
-theme_set(theme_grey(base_size=5))
+theme_set(theme_grey(base_size=4) + theme(title=element_text(size=rel(1.1))))
 
 # Parse arguments
 args = commandArgs(trailingOnly=TRUE)
@@ -31,6 +31,7 @@ contrast.name <- args[6]
 # Read in data
 dmps <- read.csv(dmp.file)
 betas <- read.csv(beta.file)
+rownames(betas) <- betas$X
 
 # image parameters
 dpi <- 300
@@ -39,38 +40,42 @@ size <- pixels / dpi
 
 # dmps by average delta beta
 ggplot(dmps, aes(x=Avg.Delta.Beta)) + 
-    geom_density() +
-    scale_x_continuous(name="Average Delta Beta", breaks=seq(from=-1, to=1, by=0.25)) + 
-    ggtitle("Differentially Methylated Positions by Average Delta Beta")
+    geom_histogram(binwidth=0.05) + 
+    scale_x_continuous(name="Average Delta Beta", breaks=seq(from=-1, to=1, by=0.2)) + 
+    ggtitle("DMPs by Average Delta Beta")
 saveimg("dmps_by_avg_delta_beta")
     
 # Beta value pca - all points
-global.pcadata <- as.data.frame(prcomp(t(na.omit(betas)))$x)
+global.pcadata <- as.data.frame(prcomp(t(na.omit(betas[c(controls, cases)])))$x)
 global.pcadata$state <- ifelse(rownames(global.pcadata) %in% cases, "case", "control")
 ggplot(global.pcadata, aes(x=PC1, y=PC2, col=state)) + 
     geom_point() + 
     theme(legend.key.size=unit(0.2, "cm")) +
     ggtitle("PCA of Methylation Values - All Positions")
-saveimg("global_beta_pca")
+saveimg("global_beta_pca", height=size*0.75)
 
 # Beta value pca - dmps
-dmp.betas <- dmps[c(cases, controls)]
+dmp.betas <- betas[as.character(dmps$Row.names), c(controls, cases)]
 dmp.pcadata <- as.data.frame(prcomp(t(dmp.betas))$x)
 dmp.pcadata$state <- ifelse(rownames(dmp.pcadata) %in% cases, "case", "control")
 ggplot(dmp.pcadata, aes(x=PC1, y=PC2, col=state)) + 
     geom_point() + 
     theme(legend.key.size=unit(0.2, "cm")) +
     ggtitle("PCA of Methylation Values - DMPs Only")
-saveimg("dmp_beta_pca")
+saveimg("dmp_beta_pca", height=size*0.75)
 
 # Beta value heatmap
-num.points <- 300
+num.points <- 75
 sort <- order(dmps$Avg.Delta.Beta, decreasing=TRUE)[1:num.points]
-most.variation <- dmps[sort, ][c(cases, controls)]
-row.labels <- dmps[sort, ]$Row.names
+ind <- dmps[sort, 'Row.names']
+most.variation <- betas[as.character(ind), c(cases,controls)]
+# row.labels <- dmps[sort, ]$Row.names
+row.labels <- paste(dmps[sort, 'seqnames'], ':', dmps[sort, 'start'], sep="")
 colors <- ifelse(colnames(most.variation) %in% cases, "red", "green")
 png(paste(output.dir, "/", contrast.name, ".", "dmp_heatmap.png", sep=""), width=700, height=1000)
-heatmap.2(as.matrix(most.variation), key=TRUE, col=colorRampPalette(c('red', 'yellow', 'blue')), colCol=colors, trace='none', breaks=21, labRow=row.labels, margins=c(10,5))
+heatmap.2(as.matrix(most.variation), key=TRUE, col=colorRampPalette(c('red', 'yellow', 'blue')), 
+          colCol=colors, trace='none', breaks=21, labRow=row.labels, margins=c(10,5), 
+          main=paste("Methylation Values of", num.points, "most Differential Positions", sep=" "))
 dev.off()
 
 # metrics
@@ -85,10 +90,6 @@ dmp.metrics.file <- paste(output.dir, "dmp.metrics.csv", sep="/")
 dmp.metrics.table <- paste(output.dir, "dmp.metrics.table", sep="/")
 if (file.exists(dmp.metrics.file)) {
     metrics.file <- read.csv(dmp.metrics.file, row.names=1)
-    
-    print(metrics)
-    print(metrics.file)
-    
     metrics <- rbind(metrics, metrics.file)
 }
 write.csv(metrics, file=dmp.metrics.file)

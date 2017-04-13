@@ -44,6 +44,13 @@ All analysis parameters are described in this [configuration file](config.ini).
 [CSS]: http://bioconductor.org/packages/release/bioc/html/metagenomeSeq.html
 [GOLD]: http://microbiomeutil.sourceforge.net/
 [UNITE]: https://unite.ut.ee/repository.php
+[Bismark]: http://www.bioinformatics.babraham.ac.uk/projects/bismark/
+[Minfi]: http://bioconductor.org/packages/release/bioc/html/minfi.html
+[Biseq]: https://www.bioconductor.org/packages/release/bioc/html/BiSeq.html
+[Bumphunter]: http://bioconductor.org/packages/release/bioc/html/bumphunter.html
+[Fastqc]: http://www.bioinformatics.babraham.ac.uk/projects/fastqc/
+[Trim Galore!]: http://www.bioinformatics.babraham.ac.uk/projects/trim_galore/
+[LOLA]: http://databio.org/lola/
 
 ---
 references:
@@ -1008,4 +1015,120 @@ references:
   issued:
     year: 2015     
                                                  
-...
+
+- id: bismark
+  title: 'Bismark: a Flexible Aligner and Methylation Caller for Buisulfite-Seq Applications'
+  author:
+    - family: Krueger
+      given: F.
+    - family: Andrews
+      given: S.R.
+  container-title: Bioinformatics
+  volume: 27
+  URL: 'http://bioinformatics.oxfordjournals.org/content/27/11/1571'
+  DOI: 10.1093/bioinformatics/btr167
+  page: 1571-1572
+  type: article-journal
+  issued:
+    year: 2011
+
+- id: minfi
+  title: 'Minfi: a Flexible and Comprehensive Bioconductor Package for the Analysis of Infinium DNA Methylation Microarrays'
+  author:
+    - family: Aryee
+      given: M.J.
+    - family: Jaffe
+      given: A.E.
+    - family: Corrada-Bravo
+      given: H.
+    - family: Ladd-Acosta
+      given: C.
+    - family: Feinberg
+      given: A.P.
+    - family: Hansen
+      given: K.D.
+    - family: Irizarry
+      given: R.A.
+  container-title: Bioinformatics
+  volume: 30
+  URL: 'http://bioinformatics.oxfordjournals.org/content/30/10/1363'
+  DOI: 10.1093/bioinformatics/btu049
+  page: 1363-1369
+  type: article-journal
+  issued:
+    year: 2014
+
+- id: biseq
+  title: 'Detection of Significantly Differentially Methylated Regions in Targeted Bisulfite Sequencing Data'
+  author:
+    - family: Heberstreit
+      given: K.
+    - family: Dugas
+      given: M.
+    - family: Klein
+      given: H.
+  container-title: Bioinformatics
+  volume: 29
+  URL: 'http://bioinformatics.oxfordjournals.org/content/29/13/1647'
+  DOI: 10.1093/bioinformatics/btt263
+  page: 1647-1653
+  type: article-journal
+  issued:
+    year: 2013
+
+- id: bumphunter
+  title: 'Bump Hunting to Identify Differentially Methylated Regions in Epigenetic Epidemiology Studies'
+  author:
+    - family: Jaffe
+      given: A.E.
+    - family: Murakami
+      given: P.
+    - family: Lee
+      given: H.L.
+    - family: Leek
+      given: J.T.
+    - family: Fallin
+      given: M.D.
+    - family: Feinberg
+      given: A.P.
+    - family: Irizarry
+      given: R.A.
+  container_title: bioinformatics
+  volume: 41
+  URL: 'http://bioinformatics.oxfordjournals.org/content/41/1/200'
+  DOI: 10.1093/ije/dyr238
+  page: 200-209
+  type: article-journal
+  issued:
+    year: 2012
+
+- id: fastqc
+  author:
+    - family: Andrews
+      given: S.R.
+  URL: 'http://www.bioinformatics.babraham.ac.uk/projects/fastqc/'
+
+- id: trim_galore
+  author:
+    - family: Krueger
+      given: F.
+  URL: 'http://www.bioinformatics.babraham.ac.uk/projects/trim_galore/'
+
+- id: LOLA
+  title: 'LOLA: enrichment analysis for genomic region sets and regulatory elements in R and Bioconductor'
+  author:
+    - family: Sheffield
+      given: N.C    
+  author:
+    - family: Bock
+      given: C.
+  container_title: bioinformatics
+  volume: 32
+  URL: 'bioinformatics.oxfordjournals.org/content/32/4/587'
+  DOI: 10.1093/bioinformatics/btv612
+  page: 587-589
+  type: article-journal
+  issued:
+    year: 2015
+
+---
