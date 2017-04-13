@@ -5,7 +5,7 @@ module load mugqic-pipelines/2.2.0
 export PYTHONPATH=$MUGQIC_PIPELINES_HOME:$PYTHONPATH
 
 $MUGQIC_PIPELINES_HOME/pipelines/episeq/episeq.py \
- -s 1-13 \
+ -s 1-19 \
  -o output \
  -j pbs \
  -l debug \

@@ -251,8 +251,8 @@ class EpiSeq(Illumina):
             self.differential_methylated_pos,
             self.differential_methylated_regions,
             self.prepare_annotations,
-            self.annotate_regions,
             self.annotate_positions,
+            self.annotate_regions,
             self.position_enrichment_analysis,
             self.region_enrichment_analysis
         ]
@@ -1628,95 +1628,6 @@ EOF""".format(
             name="perpare_annotations"
         )]
 
-    def annotate_regions(self):
-        """
-    This step annotates regions that were identified in the differential_methylated_regions
-    step with annotations that were created in the prepare_annotations step. The function
-    matchGenes from the R package bumphunter is used to annotate the regions.
-
-    Input: GenomicRanges object containing annotations (prepare_annotations/)
-    Input: A CSV file containing regions (differential_methylated_regions/)
-    Output: A CSV file in annotate_regions/
-
-    :return: A list of jobs that need to be executed in this step.
-    :rtype: list(Job)
-        """
-        annotations_file = "prepare_annotations/annotations.Rdata"
-        report_file = 'report/EpiSeq.annotate_regions.md'
-        report_data = 'data/annotate_regions'
-        fill_in_entry = '| {contrast_name} | [download csv]({contrast_data}) |'
-
-        jobs = []
-        for contrast in self.contrasts:
-            dmr_file = os.path.join("differential_methylated_regions",
-                                    contrast.name + "_RRBS_differential_methylated_regions.csv")
-            matched_file = os.path.join("annotate_regions", contrast.name + "_matched_genes.csv")
-
-            report_entry = fill_in_entry.format(
-                contrast_name = contrast.name,
-                contrast_data = os.path.join(report_data, os.path.basename(matched_file))
-            )
-
-            command = """\
-TEMPLATE_STR_FILE=annotate_regions/$(date +%F)_template_var_strings.txt && \\
-mkdir -p {directory} && \\
-flock -x ${{TEMPLATE_STR_FILE}}.lock -c "echo \\"{entry}\\" >> ${{TEMPLATE_STR_FILE}}"; \\
-R --no-save --no-restore <<-'EOF'
-suppressPackageStartupMessages(library(bumphunter))
-library(doParallel)
-registerDoParallel(cores={cores})
-
-dmrs <- read.csv('{dmr_file}')
-
-load('{annotations_file}')
-
-# remove any regions that are on a sequence not in the annotations
-# required as matchGenes crashes if any regions fail to map to a gene
-dmrs <- dmrs[dmrs$chr %in% seqlevelsInUse(annotations), ]
-
-matched.genes <- matchGenes(dmrs, annotations,
-    promoterDist={promoterDist}, type='{type}', skipExons={skipExons})
-
-annotated <- cbind(dmrs, matched.genes)
-write.csv(annotated, file='{matched_file}', row.names=FALSE)
-EOF
-mkdir -p {data_dir} && \\
-cp -f {matched_file} {data_dir} && \\
-table=$(cat $TEMPLATE_STR_FILE) && \\
-pandoc \\
-    {report_template_dir}/{basename_report_file} \\
-    --template {report_template_dir}/{basename_report_file} \\
-    --variable data_table="$table" \\
-    --to markdown > {report_file}""".format(
-                directory=os.path.dirname(matched_file),
-                cores=config.param('annotate_regions', 'cluster_cpu').split('=')[-1],
-                dmr_file=dmr_file,
-                annotations_file=annotations_file,
-                promoterDist=config.param('annotate_regions', 'promoter_distance'),
-                type=config.param('annotate_regions', 'distance_type'),
-                skipExons=str(config.param('annotate_regions', 'skip_exons', type='boolean')).upper(),
-                matched_file=matched_file,
-                entry=report_entry,
-                data_dir=os.path.join('report', report_data),
-                report_template_dir=self.report_template_dir,
-                basename_report_file=os.path.basename(report_file),
-                report_file=report_file)
-
-            job = Job(
-                [dmr_file, annotations_file],
-                [matched_file],
-                [
-                    ['annotate_regions', 'module_R'],
-                    ['annotate_regions', 'module_pandoc']
-                ],
-                report_files=[report_file],
-                command=command,
-                name="annotate_regions." + contrast.name
-            )
-
-            jobs.append(job)
-
-        return jobs
 
     def annotate_positions(self):
         """
@@ -1808,6 +1719,98 @@ pandoc \\
             jobs.append(job)
 
         return jobs
+
+
+    def annotate_regions(self):
+        """
+    This step annotates regions that were identified in the differential_methylated_regions
+    step with annotations that were created in the prepare_annotations step. The function
+    matchGenes from the R package bumphunter is used to annotate the regions.
+
+    Input: GenomicRanges object containing annotations (prepare_annotations/)
+    Input: A CSV file containing regions (differential_methylated_regions/)
+    Output: A CSV file in annotate_regions/
+
+    :return: A list of jobs that need to be executed in this step.
+    :rtype: list(Job)
+        """
+        annotations_file = "prepare_annotations/annotations.Rdata"
+        report_file = 'report/EpiSeq.annotate_regions.md'
+        report_data = 'data/annotate_regions'
+        fill_in_entry = '| {contrast_name} | [download csv]({contrast_data}) |'
+
+        jobs = []
+        for contrast in self.contrasts:
+            dmr_file = os.path.join("differential_methylated_regions",
+                                    contrast.name + "_RRBS_differential_methylated_regions.csv")
+            matched_file = os.path.join("annotate_regions", contrast.name + "_matched_genes.csv")
+
+            report_entry = fill_in_entry.format(
+                contrast_name = contrast.name,
+                contrast_data = os.path.join(report_data, os.path.basename(matched_file))
+            )
+
+            command = """\
+TEMPLATE_STR_FILE=annotate_regions/$(date +%F)_template_var_strings.txt && \\
+mkdir -p {directory} && \\
+flock -x ${{TEMPLATE_STR_FILE}}.lock -c "echo \\"{entry}\\" >> ${{TEMPLATE_STR_FILE}}"; \\
+R --no-save --no-restore <<-'EOF'
+suppressPackageStartupMessages(library(bumphunter))
+library(doParallel)
+registerDoParallel(cores={cores})
+
+dmrs <- read.csv('{dmr_file}')
+
+load('{annotations_file}')
+
+# remove any regions that are on a sequence not in the annotations
+# required as matchGenes crashes if any regions fail to map to a gene
+dmrs <- dmrs[dmrs$chr %in% seqlevelsInUse(annotations), ]
+
+matched.genes <- matchGenes(dmrs, annotations,
+    promoterDist={promoterDist}, type='{type}', skipExons={skipExons})
+
+annotated <- cbind(dmrs, matched.genes)
+write.csv(annotated, file='{matched_file}', row.names=FALSE)
+EOF
+mkdir -p {data_dir} && \\
+cp -f {matched_file} {data_dir} && \\
+table=$(cat $TEMPLATE_STR_FILE) && \\
+pandoc \\
+    {report_template_dir}/{basename_report_file} \\
+    --template {report_template_dir}/{basename_report_file} \\
+    --variable data_table="$table" \\
+    --to markdown > {report_file}""".format(
+                directory=os.path.dirname(matched_file),
+                cores=config.param('annotate_regions', 'cluster_cpu').split('=')[-1],
+                dmr_file=dmr_file,
+                annotations_file=annotations_file,
+                promoterDist=config.param('annotate_regions', 'promoter_distance'),
+                type=config.param('annotate_regions', 'distance_type'),
+                skipExons=str(config.param('annotate_regions', 'skip_exons', type='boolean')).upper(),
+                matched_file=matched_file,
+                entry=report_entry,
+                data_dir=os.path.join('report', report_data),
+                report_template_dir=self.report_template_dir,
+                basename_report_file=os.path.basename(report_file),
+                report_file=report_file)
+
+            job = Job(
+                [dmr_file, annotations_file],
+                [matched_file],
+                [
+                    ['annotate_regions', 'module_R'],
+                    ['annotate_regions', 'module_pandoc']
+                ],
+                report_files=[report_file],
+                command=command,
+                name="annotate_regions." + contrast.name
+            )
+
+            jobs.append(job)
+
+        return jobs
+
 
     def position_enrichment_analysis(self):
         """
@@ -2013,156 +2016,6 @@ pandoc \\
                 command=command,
                 report_files=[report_file],
                 name="region_enrichment_analysis." + contrast.name)
-            jobs.append(job)
-
-        return jobs
-
-    def enrichment_analysis(self):
-        report_file = 'report/EpiSeq.enrichment_analysis.md'
-        report_data = 'data/enrichment_analysis/'
-        fill_in_entry = '| {contrast_name} | [download analysis results]({results_link}) | [download metadata]({metadata_link})'
-
-        jobs = []
-        for contrast in self.contrasts:
-            sample_names = [sample.name for sample in contrast.controls + contrast.treatments]
-            cov_files = [os.path.join("methyl_calls", sample, sample + ".merged.deduplicated.bismark.cov.gz")
-                    for sample in sample_names]
-
-            analysis_file = os.path.join("enrichment_analysis",
-                                         contrast.name + "_enrichment_analysis.csv")
-            metadata_file = os.path.join("enrichment_analysis",
-                                         contrast.name + "_metadata.csv")
-
-            report_entry = fill_in_entry.format(
-                contrast_name=contrast.name,
-                results_link=os.path.join(report_data, os.path.basename(analysis_file)),
-                metadata_link=os.path.join(report_data, os.path.basename(metadata_file)))
-
-            dmps_file = os.path.join("differential_methylated_positions",
-                contrast.name + "_RRBS_differential_methylated_pos.csv")
-            dmrs_file = os.path.join("differential_methylated_regions",
-                contrast.name + "_RRBS_differential_methylated_regions.csv")
-
-            command="""\
-TEMPLATE_STR_FILE=enrichment_analysis/$(date +%F)_template_var_strings.txt && \\
-mkdir -p {directory} && \\
-flock -x ${{TEMPLATE_STR_FILE}}.lock -c "echo \\"{entry}\\" >> ${{TEMPLATE_STR_FILE}}" && \\
-R --no-save --no-restore <<-'EOF'
-
-suppressPackageStartupMessages(library(BiSeq))
-suppressPackageStartupMessages(library(GenomicRanges))
-suppressPackageStartupMessages(library(data.table))
-### DeepBlueR and LOLA not installed on system
-suppressPackageStartupMessages(library(DeepBlueR, lib.loc='/home/jonBarenboim/R/x86_64-pc-linux-gnu-library/3.3/'))
-suppressPackageStartupMessages(library(LOLA, lib.loc='/home/jonBarenboim/R/x86_64-pc-linux-gnu-library/3.3/'))
-
-
-# get all regions to use as universe for LOLA
-sample.files <- c{sample_files}
-sample.names <- c{sample_names}
-rrbs <- readBismark(sample.files, colData=DataFrame(group=sample.names, row.names=sample.names))
-universe <- rowRanges(rrbs)
-
-
-# load dmrs and dmps and combine into one GRanges object
-dmrs <- read.csv('{dmrs_file}')
-dmps <- read.csv('{dmps_file}')
-dmps <- GRanges(dmps[c('seqnames', 'start', 'end')])
-dmrs <- GRanges(dmrs[c('chr', 'start', 'end')])
-userset <- c(dmps, dmrs)
-
-# the universe should contain every region in the dmps/dmrs
-# if it doesnt, something probably went wrong in earlier steps!
-tryCatch(
-    {{checkUniverseAppropriateness(userset, universe)}},
-    warning = function(warn) {{stop("userset is not a subset of universe. \
-Something went wrong when selecting positions or regions!")}})
-
-# get annotations and metadata from DeepBlue
-annotations.names <- c{annotation_names}
-annotations.list <- deepblue_list_annotations(genome="{genome}")
-annotations.ids <- annotations.list[annotations.list$name %in% annotations.names]$id
-annotations.request.id <- deepblue_select_annotations(annotation_name=annotations.names, genome="{genome}")
-request.id <- deepblue_get_regions(query_id=annotations.request.id,
-                                    output_format="CHROMOSOME,START,END,STRAND,@NAME")
-
-if (length(annotations.ids) == 0) {{
-    stop("No valid annotation names were supplied")
-}}
-
-bad.annotations <- annotations.names[!annotations.names %in% annotations.list$name]
-if (length(bad.annotations) > 0) {{
-    warning(paste("The following supplied annotations do not exist in DeepBlue for the given genome:",
-              paste(bad.annotations, collapse=", "),sep="\n"))
-}}
-
-
-annotations.metadata <- deepblue_meta_data_to_table(annotations.ids)
-#    ensure annotation metadata is in the same order as annotations.names
-name.order <- sapply(annotations.metadata$name, function(x) which(annotations.names == x))
-annotations.metadata <- annotations.metadata[name.order, ]
-rownames(annotations.metadata) <- NULL
-
-# allow multicore processing
-# setLapplyAlias(cores={cores}) #TODO
-
-# select_annotations request is asynchronous. Wait until it is done, then fetch results
-annotations.data <- deepblue_download_request_data(request.id)
-
-# create regionDB
-regionDB <- list()
-regionDB$regionGRL <- GRangesList(lapply(annotations.names, function(x){{ granges(annotations.data[mcols(annotations.data)[['@NAME']] == x, ]) }} ))
-regionDB$collectionAnno <- data.table(collectionName="DeepBlue_annotations", source="DeepBlue", description="Annotations downloaded from DeepBlue")
-regionDB$regionAnno <- data.table(filename=annotations.metadata$name, cellType=NA,
-                                  description=NA, tissue=NA,
-                                  dataSource="DeepBlue", antibody=NA, treatment=NA,
-                                  collection="DeepBlue_annotations",
-                                  size=sapply(regionDB$regionGRL, length),
-                                  dbset=1:nrow(annotations.metadata))
-
-
-LOLAresult <- runLOLA(userset, universe, regionDB)
-write.csv(LOLAresult, file='{analysis_file}')
-write.csv(annotations.metadata, file='{metadata_file}')
-EOF
-
-mkdir -p {data_dir} && \\
-cp -f {analysis_file} {metadata_file} {data_dir}; \\
-table=$(cat $TEMPLATE_STR_FILE) && \\
-pandoc \\
-    {report_template_dir}/{basename_report_file} \\
-    --template {report_template_dir}/{basename_report_file} \\
-    --variable data_table="$table" \\
-    --to markdown > {report_file} """.format(
-                directory=os.path.dirname(analysis_file),
-                entry=report_entry,
-                sample_files=tuple(cov_files),
-                sample_names=tuple(sample_names),
-                dmrs_file=dmrs_file,
-                dmps_file=dmps_file,
-                annotation_names=tuple([x.strip() for x in config.param('enrichment_analysis','annotations', type='list')]),
-                genome=config.param('enrichment_analysis', 'genome'),
-                cores=config.param('enrichment_analysis', 'cluster_cpu').split('=')[-1],
-                analysis_file=analysis_file,
-                metadata_file=metadata_file,
-                data_dir=os.path.join('report', report_data),
-                report_template_dir=self.report_template_dir,
-                basename_report_file=os.path.basename(report_file),
-                report_file=report_file,
-                contrast_name=contrast.name)
-
-
-            job = Job(
-                cov_files + [dmps_file, dmrs_file],
-                [analysis_file, metadata_file],
-                [
-                    ["differential_methylated_regions", "module_R"],
-                    ["differential_methylated_regions", "module_pandoc"]
-                ],
-                command=command,
-                report_files=[report_file],
-                name="enrichment_analysis." + contrast.name)
-
             jobs.append(job)
 
         return jobs
