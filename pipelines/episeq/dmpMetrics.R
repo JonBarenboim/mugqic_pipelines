@@ -4,7 +4,7 @@ library(plyr)
 library(knitr)
 
 # usage:
-# Rscript dmpMetrics.R dmp_file beta_file [cases] [controls] output_dir contrast_name
+# Rscript dmpMetrics.R dmp_file beta_file [cases] [controls] output_dir data_dir contrast_name
 
 # Helper functions
 parse.input.list <- function(x) {
@@ -26,7 +26,8 @@ beta.file <- args[2]
 cases <- parse.input.list(args[3])
 controls <- parse.input.list(args[4])
 output.dir <- args[5]
-contrast.name <- args[6]
+data.dir <- args[6]
+contrast.name <- args[7]
 
 # Read in data
 dmps <- read.csv(dmp.file)
@@ -65,7 +66,7 @@ ggplot(dmp.pcadata, aes(x=PC1, y=PC2, col=state)) +
 saveimg("dmp_beta_pca", height=size*0.75)
 
 # Beta value heatmap
-num.points <- 75
+num.points <- min(nrow(dmps), 75)
 sort <- order(dmps$Avg.Delta.Beta, decreasing=TRUE)[1:num.points]
 ind <- dmps[sort, 'Row.names']
 most.variation <- betas[as.character(ind), c(cases,controls)]
@@ -86,8 +87,8 @@ metrics <- as.data.frame(metrics)
 rownames(metrics) <- c(contrast.name)
 
 # append to metrics file
-dmp.metrics.file <- paste(output.dir, "dmp.metrics.csv", sep="/")
-dmp.metrics.table <- paste(output.dir, "dmp.metrics.table", sep="/")
+dmp.metrics.file <- paste(data.dir, "dmp.metrics.csv", sep="/")
+dmp.metrics.table <- paste(data.dir, "dmp.metrics.table", sep="/")
 if (file.exists(dmp.metrics.file)) {
     metrics.file <- read.csv(dmp.metrics.file, row.names=1)
     metrics <- rbind(metrics, metrics.file)

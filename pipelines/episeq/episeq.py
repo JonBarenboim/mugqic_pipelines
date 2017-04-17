@@ -1404,13 +1404,15 @@ pandoc \\
             # metrics and report
             cases = [sample.name for sample in contrast.treatments]
             controls = [sample.name for sample in contrast.controls]
-            metrics_job = metrics.dmp_metrics(dmps_file, beta_file, cases, controls, 'report', contrast.name)
+            metrics_job = metrics.dmp_metrics(dmps_file, beta_file, cases, controls, 'report',
+                    'differential_methylated_positions', contrast.name)
             metrics_report = 'report/EpiSeq.dmp_metrics.md'
             metrics_job.report_files = [metrics_report]
 
-            metrics_table_file = os.path.join('report', 'dmp.metrics.table')
+            metrics_table_file = os.path.join('differential_methylated_positions', 'dmp.metrics.table')
             graphs = metrics_job.output_files
             img_list = "\n\n".join(['![](' + os.path.basename(graph) + ')' for graph in graphs])
+
 
             pandoc_command = """
 TEMPLATE_STR_FILE=differential_methylated_positions/$(date +%F)_metrics_template_strings.txt && \\
@@ -1428,7 +1430,7 @@ pandoc \\
             report_template_dir=self.report_template_dir,
             basename_report_file=os.path.basename(metrics_report),
             metrics_table_file=metrics_table_file,
-            img_list=img_list if len(self.contrasts) == 1 else "####" + contrast.name + img_list + "\n",
+            img_list=img_list if len(self.contrasts) == 1 else "####" + contrast.name + "\n" + img_list + "\n",
             report_file=metrics_report,
             pvalue=config.param("differential_methylated_pos", "pvalue", type="float"),
             delta_cutoff=config.param("differential_methylated_pos", "delta_beta_threshold",
@@ -1486,6 +1488,8 @@ beta <- methLevel(rrbs)
 chr <- as.character(seqnames(rowRanges(rrbs)))
 pos <- start(ranges(rowRanges(rrbs)))
 pheno <- DataFrame(group=factor(c{group}), row.names=c{sample_names})
+# ensure order of design matrix corresponds to order of samples in beta
+pheno <- pheno[sapply(rownames(pheno), function(x) which(x == colnames(beta))), , drop=FALSE]
 designM <- model.matrix(~pheno$group)
 
 dmrs <- bumphunterEngine(beta,
@@ -1562,7 +1566,7 @@ pandoc \\
     --template {report_template_dir}/{basename_report_file} \\
     --variable img_list="$img_list" \\
     --to markdown > {report_file}""".format(
-                img_list=img_list if len(self.contrasts)==1 else "####" + contrast.name + img_list + "\n",
+                img_list=img_list if len(self.contrasts)==1 else "####" + contrast.name + "\n" + img_list + "\n",
                 report_template_dir=self.report_template_dir,
                 basename_report_file=os.path.basename(metrics_report),
                 report_file=metrics_report
@@ -1994,7 +1998,7 @@ pandoc \\
                 rrbs_file=rrbs_file,
                 dmrs_file=dmrs_file,
                 LOLA_root=config.param('region_enrichment_analysis', 'LOLA_dir'),
-                LOLA_genome=config.param('region_enrichment_analysis', 'genome'),
+                LOLA_genome=config.param('region_enrichment_analysis', 'assembly'),
                 LOLA_collection=tuple(config.param('region_enrichment_analysis', 'collection', type='list')),
                 LOLA_filename=tuple(config.param('region_enrichment_analysis', 'filename', type='list')),
                 LOLA_description=tuple(config.param('region_enrichment_analysis', 'description', type='list')),

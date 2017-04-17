@@ -155,7 +155,7 @@ Rscript /hpf/largeprojects/ccmbio/jonBarenboim/mugqic_pipelines/pipelines/episeq
     {beta_file} {output_dir}""".format(beta_file=beta_file, output_dir=output_dir)
     )
 
-def dmp_metrics(dmp_file, beta_file, cases, controls, output_dir, contrast_name):
+def dmp_metrics(dmp_file, beta_file, cases, controls, output_dir, data_dir, contrast_name):
     graphs = ['dmps_by_avg_delta_beta', 'dmp_heatmap',
               'global_beta_pca', 'dmp_beta_pca']
     return Job (
@@ -167,10 +167,11 @@ def dmp_metrics(dmp_file, beta_file, cases, controls, output_dir, contrast_name)
         ],
         command="""\
 Rscript /hpf/largeprojects/ccmbio/jonBarenboim/mugqic_pipelines/pipelines/episeq/dmpMetrics.R \\
-    {dmp_file} {beta_file} "{cases}" "{controls}" {output_dir} {contrast_name}""".format(
+    {dmp_file} {beta_file} "{cases}" "{controls}" {output_dir} {data_dir} {contrast_name}""".format(
             dmp_file=dmp_file,
             beta_file=beta_file,
             output_dir=output_dir,
+            data_dir=data_dir,
             cases=cases,
             controls=controls,
             contrast_name=contrast_name)
