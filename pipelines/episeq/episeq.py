@@ -11,7 +11,7 @@ Refer to the MUGQIC modules that are imported below. Looking at their source cod
 of the underlying infrastructure that keeps this pipeline working.
 
 Background
-----------z
+----------
 Epi-Seq is a differential analysis pipeline for BS-seq sequencing. Currently only RRBS and WGBS datasets are
 tested to work with this pipeline. Similar to the other MUGQIC pipeline series, EpiSeq uses two metadata files to
 set up the pipeline. The design file is used to group samples into case vs control. The readsets files maps input files
@@ -379,7 +379,7 @@ class EpiSeq(Illumina):
                     sample=sample.name,
                     readset=readset.name,
                     fq1_report=os.path.join(report_data, id_name[0]) + '_fastqc.html',
-                    fq1_download=os.path.join(report_data, id_name[0] + '.zip'),
+                    fq1_download=os.path.join(report_data, id_name[0] + '_fastqc.zip'),
                     fq2_report='[Report 2](' + os.path.join(report_data, id_name[1]) + '_fastqc.html' + ')'
                                if len(id_name) == 2 else '',
                     fq2_download='[Download 2](' + os.path.join(report_data, id_name[1] + '.zip') + ')'
@@ -1216,7 +1216,6 @@ mkdir -p {directory} && \\
 R --no-save --no-restore <<-'EOF'
 suppressPackageStartupMessages(library(BiSeq))
 suppressPackageStartupMessages(library(knitr))
-suppressPackageStartupMessages(library(minfi))
 suppressPackageStartupMessages(library(ggplot2))
 suppressPackageStartupMessages(library(reshape2))
 
@@ -1592,7 +1591,7 @@ pandoc \\
     :rtype: list(Job)
         """
         annotations_file = "prepare_annotations/annotations.Rdata"
-        gtf_file = config.param('prepare_annotations', 'gtf')
+        gtf_file = config.param('prepare_annotations', 'gtf', type='filepath')
 
         command = """\
 mkdir -p {directory} && \\
@@ -1859,22 +1858,36 @@ R --vanilla <<-'EOF'
 suppressPackageStartupMessages(library(BiSeq))
 suppressPackageStartupMessages(library(data.table))
 suppressPackageStartupMessages(library(GenomicRanges))
+suppressPackageStartupMessages(library(doParallel))
 suppressPackageStartupMessages(library(LOLA, lib.loc='/home/jonBarenboim/R/x86_64-pc-linux-gnu-library/3.3'))
 source('/hpf/largeprojects/ccmbio/jonBarenboim/mugqic_pipelines/pipelines/episeq/LOLAsearch.r')
+
+registerDoParallel(cores={cores})
 
 load('{rrbs_file}')
 dmps <- read.csv('{dmps_file}')
 universe <- rowRanges(rrbs)
 userset <- granges(GRanges(dmps))
 
-# The universe should containe every region in the dmps. If not, something probably went wrong in earlier steps
+# The universe should contain every region in the dmps. If not, something probably went wrong in earlier steps
 tryCatch(
     {{ checkUniverseAppropriateness(userset, universe) }},
     warning = function(w) {{ stop("userset is not a subset of universe") }},
     error = function(e) {{ stop("userset is not a subset of universe") }})
 
-regionDB <- buildRegionDB(rootdir='{LOLA_root}', genome='{LOLA_genome}', collection=c{LOLA_collection}, 
+LOLAcoreDB <- buildRegionDB(rootdir='{LOLA_root}', genome='{LOLA_genome}', collection=c{LOLA_collection}, 
                           filename=c{LOLA_filename}, description=c{LOLA_description}, any=c{LOLA_any})
+userFileDB <- foreach(dir=c{LOLA_user_dirs}, .combine=mergeRegionDBs) %dopar% {{
+    files <- Sys.glob(paste(dir, "/*", sep=""))
+    tmpDB <- list()
+    tmpDB$regionGRL <- readCollection(files)
+    tmpDB$collectionAnno <- data.table(collectionname=basename(dir), collector=NA, date=NA, 
+        source=dir, description=paste('User supplied .bed files in directory', dir))
+    tmpDB$regionAnno <- data.table(filename=basename(files), cellType=NA, description=NA, tissue=NA, dataSource=NA,
+        antibody=NA, treatment=NA, collection=basename(dir), size=sapply(tmpDB$regionGRL, length))
+    tmpDB
+}}
+regionDB <- mergeRegionDBs(LOLAcoreDB, userFileDB)
 LOLAresult <- runLOLA(userset, universe, regionDB)
 
 write.csv(LOLAresult, file='{analysis_file}', row.names=FALSE)
@@ -1891,9 +1904,11 @@ pandoc \\
     --to markdown > {report_file}""".format(
                 directory=os.path.dirname(analysis_file),
                 entry=report_entry,
+                cores=config.param('position_enrichment_analysis', 'cluster_cpu').split('=')[-1],
                 rrbs_file=rrbs_file,
                 dmps_file=dmps_file,
                 LOLA_root=config.param('position_enrichment_analysis', 'LOLA_dir'),
+                LOLA_user_dirs=tuple(config.param('position_enrichment_analysis', 'LOLA_bed_files', type='dirpathlist')),
                 LOLA_genome=config.param('position_enrichment_analysis', 'assembly'),
                 LOLA_collection=tuple(config.param('position_enrichment_analysis', 'collection', type='list')),
                 LOLA_filename=tuple(config.param('position_enrichment_analysis', 'filename', type='list')),
@@ -1927,7 +1942,7 @@ pandoc \\
 
         Input: BSRel object (methylation_values/)
         Input: A CSV containing regions (differential_methylated_regions/)
-        Output: A VSC file in region_enrichment_analysis/
+        Output: A CSV file in region_enrichment_analysis/
 
         :return: A list of jobs that need to be executed in this step
         :rtype: list(Job)
@@ -1962,8 +1977,11 @@ R --vanilla <<-'EOF'
 suppressPackageStartupMessages(library(BiSeq))
 suppressPackageStartupMessages(library(GenomicRanges))
 suppressPackageStartupMessages(library(data.table))
+suppressPackageStartupMessages(library(doParallel))
 suppressPackageStartupMessages(library(LOLA, lib.loc='/home/jonBarenboim/R/x86_64-pc-linux-gnu-library/3.3/'))
 source('/hpf/largeprojects/ccmbio/jonBarenboim/mugqic_pipelines/pipelines/episeq/LOLAsearch.r')
+
+registerDoParallel(cores={cores})
 
 load('{rrbs_file}')
 dmrs <- read.csv('{dmrs_file}')
@@ -1976,10 +1994,21 @@ tryCatch(
     warning = function(w) {{ stop("userset is not a subset of universe") }},
     error = function(e) {{ stop("userset is not a subset of universe") }})
 
-regionDB <- buildRegionDB(rootdir='{LOLA_root}', genome='{LOLA_genome}', collection=c{LOLA_collection},
+LOLAcoreDB <- buildRegionDB(rootdir='{LOLA_root}', genome='{LOLA_genome}', collection=c{LOLA_collection},
                           filename=c{LOLA_filename}, description=c{LOLA_description}, any=c{LOLA_any})
-
+userFileDB <- foreach(dir=c{LOLA_user_dirs}, .combine=mergeRegionDBs) %dopar% {{
+    files <- Sys.glob(paste(dir, "/*", sep=""))
+    tmpDB <- list()
+    tmpDB$regionGRL <- readCollection(files)
+    tmpDB$collectionAnno <- data.table(collectionname=basename(dir), collector=NA, date=NA,
+        source=dir, description=paste('User supplied .bed files in directory', dir))
+    tmpDB$regionAnno <- data.table(filename=basename(files), cellType=NA, description=NA, tissue=NA, dataSource=NA,
+        antibody=NA, treatment=NA, collection=basename(dir), size=sapply(tmpDB$regionGRL, length))
+    tmpDB
+}}
+regionDB <- mergeRegionDBs(LOLAcoreDB, userFileDB)
 LOLAresult <- runLOLA(userset, universe, regionDB)
+
 
 write.csv(LOLAresult, file='{analysis_file}', row.names=FALSE)
 
@@ -1995,9 +2024,11 @@ pandoc \\
     --to markdown > {report_file}""".format(
                 directory=os.path.dirname(analysis_file),
                 entry=report_entry,
+                cores=config.param('position_enrichment_analysis', 'cluster_cpu').split('=')[-1],
                 rrbs_file=rrbs_file,
                 dmrs_file=dmrs_file,
                 LOLA_root=config.param('region_enrichment_analysis', 'LOLA_dir'),
+                LOLA_user_dirs=tuple(config.param('position_enrichment_analysis', 'LOLA_bed_files', type='dirpathlist')),
                 LOLA_genome=config.param('region_enrichment_analysis', 'assembly'),
                 LOLA_collection=tuple(config.param('region_enrichment_analysis', 'collection', type='list')),
                 LOLA_filename=tuple(config.param('region_enrichment_analysis', 'filename', type='list')),

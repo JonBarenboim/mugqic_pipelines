@@ -1,4 +1,4 @@
-#### Differenetially Methylated Positions Metrics
+#### Differentially Methylated Positions Metrics
 
 * total.pos: total number of positions analyzed between all samples
 * num.dmp: number of differentially methylated position. Filtered by pval < $pval_cutoff$ and Avg.Delta.Beta > $delta_cutoff$
