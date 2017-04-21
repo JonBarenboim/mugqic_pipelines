@@ -1875,18 +1875,19 @@ tryCatch(
     warning = function(w) {{ stop("userset is not a subset of universe") }},
     error = function(e) {{ stop("userset is not a subset of universe") }})
 
-LOLAcoreDB <- buildRegionDB(rootdir='{LOLA_root}', genome='{LOLA_genome}', collection=c{LOLA_collection}, 
-                          filename=c{LOLA_filename}, description=c{LOLA_description}, any=c{LOLA_any})
+LOLAcoreDB <- suppressWarnings(suppressMessages(buildRegionDB(rootdir='{LOLA_root}', genome='{LOLA_genome}',
+                collection=c{LOLA_collection}, filename=c{LOLA_filename}, description=c{LOLA_description}, any=c{LOLA_any})))
 userFileDB <- foreach(dir=c{LOLA_user_dirs}, .combine=mergeRegionDBs) %dopar% {{
     files <- Sys.glob(paste(dir, "/*", sep=""))
     tmpDB <- list()
-    tmpDB$regionGRL <- readCollection(files)
+    tmpDB$regionGRL <- suppressWarnings(suppressMessages(readCollection(files)))
     tmpDB$collectionAnno <- data.table(collectionname=basename(dir), collector=NA, date=NA, 
         source=dir, description=paste('User supplied .bed files in directory', dir))
     tmpDB$regionAnno <- data.table(filename=basename(files), cellType=NA, description=NA, tissue=NA, dataSource=NA,
         antibody=NA, treatment=NA, collection=basename(dir), size=sapply(tmpDB$regionGRL, length))
     tmpDB
 }}
+
 regionDB <- mergeRegionDBs(LOLAcoreDB, userFileDB)
 LOLAresult <- runLOLA(userset, universe, regionDB)
 
@@ -1994,12 +1995,12 @@ tryCatch(
     warning = function(w) {{ stop("userset is not a subset of universe") }},
     error = function(e) {{ stop("userset is not a subset of universe") }})
 
-LOLAcoreDB <- buildRegionDB(rootdir='{LOLA_root}', genome='{LOLA_genome}', collection=c{LOLA_collection},
-                          filename=c{LOLA_filename}, description=c{LOLA_description}, any=c{LOLA_any})
+LOLAcoreDB <- suppressWarnings(suppressMessages(buildRegionDB(rootdir='{LOLA_root}', genome='{LOLA_genome}', 
+                collection=c{LOLA_collection}, filename=c{LOLA_filename}, description=c{LOLA_description}, any=c{LOLA_any})))
 userFileDB <- foreach(dir=c{LOLA_user_dirs}, .combine=mergeRegionDBs) %dopar% {{
     files <- Sys.glob(paste(dir, "/*", sep=""))
     tmpDB <- list()
-    tmpDB$regionGRL <- readCollection(files)
+    tmpDB$regionGRL <- suppressWarnings(suppressMessages(readCollection(files)))
     tmpDB$collectionAnno <- data.table(collectionname=basename(dir), collector=NA, date=NA,
         source=dir, description=paste('User supplied .bed files in directory', dir))
     tmpDB$regionAnno <- data.table(filename=basename(files), cellType=NA, description=NA, tissue=NA, dataSource=NA,
