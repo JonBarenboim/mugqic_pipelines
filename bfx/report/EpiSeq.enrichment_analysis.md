@@ -5,3 +5,6 @@ The results of the analysis for each contrast specified in the design configurat
 | Contrast | Positions/Regions | Results |
 | -------- | ----------------- | ------- |
 $data_table$
+
+[Download all](data/enrichment_analysis/enrichment_analysis.zip)
+

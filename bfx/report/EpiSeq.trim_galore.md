@@ -11,3 +11,6 @@ After processing the data, another [FastQC] [@fastqc] run is done to provide the
 | Sample | Readset | Trimming Report | Post-QC Report| Date Submitted | Date Completed |
 |--------|---------|-----------------|---------------|----------------|----------------|
 $data_table$
+
+[Download all](data/trim_galore/trim_galore.zip)
+

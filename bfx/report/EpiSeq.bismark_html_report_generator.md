@@ -6,3 +6,6 @@ This report contains the data from alignment, de-duplication, and methylation ca
 | Sample | Alignment Report | Methylation Data (ZIP)   | Date Submitted | Date Completed |
 |--------|------------------|--------------------------|----------------|----------------|
 $data_table$
+
+[Download all](data/bismark_html_report_generator/bismark_html_report_generator.zip)
+

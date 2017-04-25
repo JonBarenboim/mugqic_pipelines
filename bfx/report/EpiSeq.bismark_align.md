@@ -6,3 +6,6 @@ These are [Bismark] [@bismark] reports for individual readsets are displayed. It
 | Sample | Readset | Alignment Report | Coverage Report | Date Submitted | Date Completed |
 |--------|---------|------------------|-----------------|----------------|----------------|
 $data_table$
+
+[Download all](data/bismark_align/bismark_align.zip)
+

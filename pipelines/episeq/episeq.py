@@ -393,6 +393,7 @@ TEMPLATE_STR_FILE=pre_qc_check/$(date +%F)_template_var_strings.txt && \\
 flock -x "${{TEMPLATE_STR_FILE}}.lock" -c "echo \\"{entry}\\" >> ${{TEMPLATE_STR_FILE}}" && \\
 mkdir -p {data_loc} && \\
 cp -f {output_file} {data_loc} && \\
+zip -r {zip_file} {data_loc} && \\
 table=$(cat $TEMPLATE_STR_FILE) && \\
 pandoc \\
   {report_template_dir}/{basename_report_file} \\
@@ -405,6 +406,7 @@ pandoc \\
                     basename_report_file=os.path.basename(report_file),
                     output_file=" ".join(output),
                     data_loc=os.path.join('report', report_data),
+                    zip_file=os.path.join('report', report_data, os.path.basename(report_data) + '.zip'),
                     report_file=report_file)
                 update_template = Job(
                     output_files=[os.path.join('report', report_data, os.path.basename(out_log))
@@ -605,6 +607,7 @@ for i in {individual_page}; do
         awk '{script}' | \\
         pandoc --output "{data_loc}/$i.html"; \\
 done
+zip -r {zip_file} {data_loc} && \\
 table=$(cat $TEMPLATE_STR_FILE) && \\
 pandoc \\
 {report_template_dir}/{basename_report_file} \\
@@ -618,6 +621,7 @@ pandoc \\
                     output_file=" ".join(output_reports),
                     individual_page=" ".join([os.path.basename(loc) for loc in key_report]),
                     data_loc=os.path.join('report', report_data),
+                    zip_file=os.path.join('report', report_data, os.path.basename(report_data) + '.zip'),
                     script=output_parser,
                     report_file=report_file)
 
@@ -785,6 +789,7 @@ cp -f {reports} {data_dir}; \\
 for i in {logs}; do
     sed -r 's/:\s+/|/g' $i | egrep -v "^Option" | egrep -v "^=+$" | awk '{script}' | pandoc --output $i".html"; \\
 done
+zip -r {zip_file} {data_dir} && \\
 table=$(cat $TEMPLATE_STR_FILE) && \\
 pandoc \\
 {report_template_dir}/{basename_report_file} \\
@@ -797,6 +802,7 @@ pandoc \\
                     reports=' '.join(report_log),
                     logs=' '.join(new_logs),
                     script=awk_script,
+                    zip_file=os.path.join('report', report_data, os.path.basename(report_data) + '.zip'),
                     report_template_dir=self.report_template_dir,
                     basename_report_file=os.path.basename(report_file),
                     report_file=report_file
@@ -1158,6 +1164,7 @@ bismark_methylation_extractor {library_type} {other} --multicore {core} --output
             mkdir -p {data_dir} && \\
             cp -f {report} {data_dir} && \\
             zip {zip_file} {methyl_calls} && \\
+            zip -r {zip_all_file} {data_dir} && \\
             table=$(cat $TEMPLATE_STR_FILE) && \\
             pandoc \\
             {report_template_dir}/{basename_report_file} \\
@@ -1169,6 +1176,7 @@ bismark_methylation_extractor {library_type} {other} --multicore {core} --output
                 data_dir=os.path.join('report', report_data),
                 methyl_calls='methyl_calls/' + sample.name + '/' + sample.name + '.merged.deduplicated.*',
                 zip_file=os.path.join('report', zip_file),
+                zip_all_file=os.path.join('report', report_data, os.path.basename(report_data) + '.zip'),
                 report=html_report,
                 report_template_dir=self.report_template_dir,
                 basename_report_file=os.path.basename(report_file),
@@ -1247,7 +1255,6 @@ EOF
 
 mkdir -p {data_dir} && \\
 cp -f {beta_file} {data_dir}; \\
-
 table=$(cat {beta_metrics_file}) && \\
 pandoc \\
     {report_template_dir}/{basename_report_file} \\
@@ -1263,6 +1270,7 @@ pandoc \\
             rrbs_file=rrbs_file,
             beta_metrics_file=beta_metrics_file,
             data_dir=report_data,
+            zip_file=os.path.join('report', report_data, os.path.basename(report_data) + '.zip'),
             report_template_dir=self.report_template_dir,
             basename_report_file=os.path.basename(report_file),
             beta_beanplot_file=beta_beanplot_file,
@@ -1301,7 +1309,7 @@ pandoc \\
 
         # Report file variables
         report_file = 'report/EpiSeq.differential_methylated_pos.md'
-        report_data = 'data/differential_methylated_pos/'
+        report_data = 'data/differential_methylated_pos'
         beta_file = os.path.join('methylation_values', 'methylation_values.csv')
         rrbs_file = os.path.join("methylation_values", "rrbs.RData")
         fill_in_entry = '| {contrast_name} | [download csv]({link}) |'
@@ -1362,6 +1370,7 @@ write.csv(result, file="{dmps_file}", quote=FALSE, row.names=FALSE)
 EOF
 mkdir -p {data_dir} && \\
 cp -f {dmps_file} {data_dir}; \\
+zip -r {zip_file} {data_dir} && \\
 table=$(cat $TEMPLATE_STR_FILE) && \\
 pandoc \\
     {report_template_dir}/{basename_report_file} \\
@@ -1381,6 +1390,7 @@ pandoc \\
                     type="float"),
                 dmps_file=dmps_file,
                 data_dir=os.path.join('report', report_data),
+                zip_file=os.path.join('report', report_data, os.path.basename(report_data) + '.zip'),
                 report_template_dir=self.report_template_dir,
                 basename_report_file=os.path.basename(report_file),
                 report_file=report_file,
@@ -1455,7 +1465,7 @@ pandoc \\
     """
         # Report file variables
         report_file = 'report/EpiSeq.differential_methylated_regions.md'
-        report_data = 'data/differential_methylated_regions/'
+        report_data = 'data/differential_methylated_regions'
         rrbs_file = os.path.join("methylation_values", "rrbs.RData")
         fill_in_entry = '| {contrast_name} | [download csv]({link}) |'
 
@@ -1512,6 +1522,7 @@ write.csv(dmrs, "{dmrs_file}", quote=FALSE, row.names=FALSE)
 EOF
 mkdir -p {data_dir} && \\
 cp -f {dmrs_file} {data_dir}; \\
+zip -r {zip_file} {data_dir} && \\
 table=$(cat $TEMPLATE_STR_FILE) && \\
 pandoc \\
     {report_template_dir}/{basename_report_file} \\
@@ -1530,6 +1541,7 @@ pandoc \\
                 permutations=config.param("differential_methylated_regions", "permutations", type="int"),
                 dmrs_file=dmrs_file,
                 data_dir=os.path.join('report', report_data),
+                zip_file=os.path.join('report', report_data, os.path.basename(report_data) + '.zip'),
                 report_template_dir=self.report_template_dir,
                 basename_report_file=os.path.basename(report_file),
                 report_file=report_file)
@@ -1687,6 +1699,7 @@ write.csv(annotated, file='{matched_file}', row.names=FALSE)
 EOF
 mkdir -p {data_dir} && \\
 cp -f {matched_file} {data_dir} && \\
+zip -r {zip_file} {data_dir} && \\
 table=$(cat $TEMPLATE_STR_FILE) && \\
 pandoc \\
     {report_template_dir}/{basename_report_file} \\
@@ -1703,6 +1716,7 @@ pandoc \\
                 matched_file=matched_file,
                 entry=report_entry,
                 data_dir=os.path.join('report', report_data),
+                zip_file=os.path.join('report', report_data, os.path.basename(report_data) + '.zip'),
                 report_template_dir=self.report_template_dir,
                 basename_report_file=os.path.basename(report_file),
                 report_file=report_file)
@@ -1778,6 +1792,7 @@ write.csv(annotated, file='{matched_file}', row.names=FALSE)
 EOF
 mkdir -p {data_dir} && \\
 cp -f {matched_file} {data_dir} && \\
+zip -r {zip_file} {data_dir} && \\
 table=$(cat $TEMPLATE_STR_FILE) && \\
 pandoc \\
     {report_template_dir}/{basename_report_file} \\
@@ -1794,6 +1809,7 @@ pandoc \\
                 matched_file=matched_file,
                 entry=report_entry,
                 data_dir=os.path.join('report', report_data),
+                zip_file=os.path.join('report', report_data, os.path.basename(report_data) + '.zip'),
                 report_template_dir=self.report_template_dir,
                 basename_report_file=os.path.basename(report_file),
                 report_file=report_file)
@@ -1830,7 +1846,7 @@ pandoc \\
         """
 
         report_file = 'report/EpiSeq.enrichment_analysis.md'
-        report_data = 'data/position_enrichment_analysis'
+        report_data = 'data/enrichment_analysis'
         fill_in_entry = '| {contrast_name} | Positions | [download analysis results]({results_link}) |'
 
         jobs = []
@@ -1897,6 +1913,7 @@ EOF
 
 mkdir -p {data_dir} && \\
 cp -f {analysis_file} {data_dir} && \\
+zip -r {zip_file} {data_dir} && \\
 table=$(cat $TEMPLATE_STR_FILE $TEMPLATE_STR_FILE2) && \\
 pandoc \\
     {report_template_dir}/{basename_report_file} \\
@@ -1917,6 +1934,7 @@ pandoc \\
                 LOLA_any=tuple(config.param('position_enrichment_analysis', 'any', type='list')),
                 analysis_file=analysis_file,
                 data_dir=os.path.join('report', report_data),
+                zip_file=os.path.join('report', report_data, os.path.basename(report_data) + '.zip'),
                 report_template_dir=self.report_template_dir,
                 basename_report_file=os.path.basename(report_file),
                 report_file=report_file,
@@ -1950,7 +1968,7 @@ pandoc \\
         """
 
         report_file = 'report/EpiSeq.enrichment_analysis.md'
-        report_data = 'data/region_enrichment_analysis'
+        report_data = 'data/enrichment_analysis'
         fill_in_entry = '| {contrast_name} | Regions | [download analysis results]({results_link}) |'
 
         jobs = []
@@ -2017,6 +2035,7 @@ EOF
 
 mkdir -p {data_dir} && \\
 cp -f {analysis_file} {data_dir} && \\
+zip -r {zip_file} {data_dir} && \\
 table=$(cat $TEMPLATE_STR_FILE2 $TEMPLATE_STR_FILE) && \\
 pandoc \\
     {report_template_dir}/{basename_report_file} \\
@@ -2037,6 +2056,7 @@ pandoc \\
                 LOLA_any=tuple(config.param('region_enrichment_analysis', 'any', type='list')),
                 analysis_file=analysis_file,
                 data_dir=os.path.join('report', report_data),
+                zip_file=os.path.join('report', report_data, os.path.basename(report_data) + '.zip'),
                 report_template_dir=self.report_template_dir,
                 basename_report_file=os.path.basename(report_file),
                 report_file=report_file,

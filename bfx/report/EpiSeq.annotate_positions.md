@@ -4,3 +4,6 @@ The output tables for each contrast specified in the design configuration file c
 | Contrast | Download |
 | -------- | -------- |
 $data_table$
+
+[Download all](data/annotate_positions/annotate_positions.zip)
+
