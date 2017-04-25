@@ -1818,8 +1818,8 @@ pandoc \\
     def position_enrichment_analysis(self):
         """
         This step tests overlap of positions identified in the differential_methylated_pos step against
-        region sets selected from the LOLAcore database. The R package LOLA is used to test for enichment,
-        performing a Fisher's tests to find significantly enriched region sets
+        region sets selected from the LOLAcore database and bed files supplied by the user. 
+        The R package LOLA is used to test for enichment.
 
         Input: BSRel object (methylation_values/)
         Input: A CSV containing positions (differential_methylated_pos/)
