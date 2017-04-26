@@ -1221,7 +1221,7 @@ bismark_methylation_extractor {library_type} {other} --multicore {core} --output
 
         command="""\
 mkdir -p {directory} && \\
-R --no-save --no-restore <<-'EOF'
+R --vanilla <<-'EOF'
 suppressPackageStartupMessages(library(BiSeq))
 suppressPackageStartupMessages(library(knitr))
 suppressPackageStartupMessages(library(ggplot2))
@@ -1335,7 +1335,7 @@ pandoc \\
 TEMPLATE_STR_FILE=differential_methylated_positions/$(date +%F)_template_var_strings.txt && \\
 mkdir -p {directory} && \\
 flock -x ${{TEMPLATE_STR_FILE}}.lock -c "echo \\"{entry}\\" >> ${{TEMPLATE_STR_FILE}}" && \\
-R --no-save --no-restore <<-'EOF'
+R --vanilla <<-'EOF'
 suppressPackageStartupMessages(library(minfi))
 suppressPackageStartupMessages(library(BiSeq))
 
@@ -1486,7 +1486,7 @@ pandoc \\
 TEMPLATE_STR_FILE=differential_methylated_regions/$(date +%F)_template_var_strings.txt && \\
 mkdir -p {directory} && \\
 flock -x ${{TEMPLATE_STR_FILE}}.lock -c "echo \\"{entry}\\" >> ${{TEMPLATE_STR_FILE}}"; \\
-R --no-save --no-restore <<-'EOF'
+R --vanilla <<-'EOF'
 suppressPackageStartupMessages(library(bumphunter))
 suppressPackageStartupMessages(library(BiSeq))
 library(doParallel)
@@ -1607,15 +1607,15 @@ pandoc \\
 
         command = """\
 mkdir -p {directory} && \\
-R --no-save --no-restore <<-'EOF'
+R --vanilla <<-'EOF'
 suppressPackageStartupMessages(library(GenomicFeatures))
 suppressPackageStartupMessages(library(bumphunter))
 
 txdb <- makeTxDbFromGFF('{gtf_file}', format="gtf", organism='{organism}')
 
-# use bioconductor maintained annotations data
-library(TxDb.Hsapiens.UCSC.hg19.knownGene)
-txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
+# use annotations data from bioconductor
+# library(TxDb.Hsapiens.UCSC.hg19.knownGene)
+# txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
 #
 
 # If not present, add 'chr' prefix to sequence names in txdb to match dmr/dmp format
@@ -1678,7 +1678,7 @@ TEMPLATE_STR_FILE=annotate_positions/$(date +%F)_template_var_strings.txt && \\
 mkdir -p {directory} && \\
 flock -x ${{TEMPLATE_STR_FILE}}.lock -c "echo \\"{entry}\\" >> ${{TEMPLATE_STR_FILE}}"; \\
 mkdir -p {directory} && \\
-R --no-save --no-restore <<-'EOF'
+R --vanilla <<-'EOF'
 suppressPackageStartupMessages(library(bumphunter))
 library(doParallel)
 registerDoParallel(cores={cores})
@@ -1771,7 +1771,7 @@ pandoc \\
 TEMPLATE_STR_FILE=annotate_regions/$(date +%F)_template_var_strings.txt && \\
 mkdir -p {directory} && \\
 flock -x ${{TEMPLATE_STR_FILE}}.lock -c "echo \\"{entry}\\" >> ${{TEMPLATE_STR_FILE}}"; \\
-R --no-save --no-restore <<-'EOF'
+R --vanilla <<-'EOF'
 suppressPackageStartupMessages(library(bumphunter))
 library(doParallel)
 registerDoParallel(cores={cores})
@@ -1891,8 +1891,10 @@ tryCatch(
     warning = function(w) {{ stop("userset is not a subset of universe") }},
     error = function(e) {{ stop("userset is not a subset of universe") }})
 
+# search LOLAcore for region sets
 LOLAcoreDB <- suppressWarnings(suppressMessages(buildRegionDB(rootdir='{LOLA_root}', genome='{LOLA_genome}',
                 collection=c{LOLA_collection}, filename=c{LOLA_filename}, description=c{LOLA_description}, any=c{LOLA_any})))
+# Read region sets supplied by the user and coerce into the format expectd by LOLA
 userFileDB <- foreach(dir=c{LOLA_user_dirs}, .combine=mergeRegionDBs) %dopar% {{
     files <- Sys.glob(paste(dir, "/*", sep=""))
     tmpDB <- list()
