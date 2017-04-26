@@ -1,23 +1,29 @@
 # Search LOLA core collections for region DBs
-#   collections: collections to search. 
-#   filename: a list or vector of strings. Will match any file containing the string in its name
-#   description: a list or vector of strings. Will match any file where the description contains the string
-#   any: a list or vector of strings. Matches any column containing the string
-#   ...: any other column names you want to search against. Same format as above arguments
-#   genome: assembly to search. Default "hg19"
-#   basedir: Root directory of region set database. Must be specified
+#
+# ARGUMENTS
+#   basedir:       Root directory of region set database. Must be specified
+#   genome:        Assembly to search. Default "hg19"
+#   collection:    Collections to search. If not given, use all collections for the genome
+# search terms. All are character vectors 
+#   filename:      Will match any file containing the string in its name
+#   description:   Will match any file where the description contains the string
+#   any:           Matches any column containing the string
+#   ...:           Any other column names you want to search against.
 #   
+#
 # A region set will be used if it matches ANY of the patterns in ANY of the arguments 
-#   filename, description, any, or `...`. If none of these arguments are given, ALL region
+#   filename, description, any, or `...`. If NONE of these arguments are given, ALL region
 #   sets (in the correct genome and collection) will be used 
 #
-# returns a regionDB, a list with names:
+# Regular expressions are supported. Search is case insensitive
+#
+# returns a regionDB, a list with the following names: 
 #   $collectionAnnos:     data.table. metadata for the collections
 #   $regionAnnos:         data.table. metadata for the regions
-#   $regionGRL:           GRangesList. Each GRanges object the regions from one bed file
+#   $regionGRL:           GRangesList. Each GRanges object contains the regions from one bed file
 #
 # Example:
-#   regionRB <- LOLAsearch(collection=NA, description=c("histone", "ChIP"), 
+#   res <- LOLAsearch(colleciton=NA, description=c("histone", "ChIP"), filename="^199[1-9]?\\.bed$"
 #                           antibody="AR", tissue=c("breast", "liver"), genome="hg19")
 
 
@@ -55,7 +61,9 @@ buildRegionDB <- function(collection=list(), filename=list(), description=list()
     # get metadata for collections
     regionDB$collectionAnno <- readCollectionAnnotation(rootdir, collections=collection)
 
-    # Search for any of the strings in lst in the list anno.col, and return the new list of indeces
+    # Search for any of the strings in lst in regionAnno[anno.col]]
+    # Add rows containing matching the search pattern to the list of indeces
+    # Return the updated list of indeces, maintaining uniqueness
     search_anno <- function(anno.col, lst) {
         if (length(lst) == 0) return(indeces)
         regex <- paste("(", lst, ")", sep="", collapse="|")
@@ -78,7 +86,6 @@ buildRegionDB <- function(collection=list(), filename=list(), description=list()
             regionSetAnnos <- rbind(regionSetAnnos, regionAnno[indeces, ], fill=TRUE)
         }
     } 
-
 
     # load region data
     regionDB$regionGRL <- readRegionGRL(rootdir, regionSetAnnos)
