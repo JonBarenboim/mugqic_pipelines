@@ -1692,7 +1692,6 @@ EOF""".format(
 TEMPLATE_STR_FILE=annotate_positions/$(date +%F)_template_var_strings.txt && \\
 mkdir -p {directory} && \\
 flock -x ${{TEMPLATE_STR_FILE}}.lock -c "echo \\"{entry}\\" >> ${{TEMPLATE_STR_FILE}}"; \\
-mkdir -p {directory} && \\
 R --vanilla <<-'EOF'
 suppressPackageStartupMessages(library(bumphunter))
 library(doParallel)
@@ -1702,15 +1701,16 @@ dmps <- read.csv('{dmp_file}')
 
 load('{annotations_file}')
 
-# remove any positions that are on a sequence not in the annotations
-# required as matchGenes crashes if any regions fail to map to a gene
-dmps <- dmps[dmps$seqnames %in% seqlevelsInUse(annotations), ]
+# matchGenes fails if any positions are on a sequence not in the annotations so 
+# only pass the dmps with a valid seqname to matchGenes and insert NAs for the rest
 
-matched.genes <- matchGenes(dmps, annotations,
-    promoterDist={promoterDist}, type='{type}', skipExons={skipExons})
+canmap <- dmps$seqname %in% seqlevelsInUse(annotations)
+tmp <- matchGenes(dmps[canmap, ], annotations, promoterDist={promoterDist},
+                  type='{type}', skipExons={skipExons})
+dmps[colnames(tmp)] <- NA
+dmps[canmap, colnames(tmp)] <- tmp
 
-annotated <- cbind(dmps, matched.genes)
-write.csv(annotated, file='{matched_file}', row.names=FALSE)
+write.csv(dmps, file='{matched_file}', row.names=FALSE)
 EOF
 mkdir -p {data_dir} && \\
 cp -f {matched_file} {data_dir} && \\
@@ -1795,15 +1795,16 @@ dmrs <- read.csv('{dmr_file}')
 
 load('{annotations_file}')
 
-# remove any regions that are on a sequence not in the annotations
-# required as matchGenes crashes if any regions fail to map to a gene
-dmrs <- dmrs[dmrs$chr %in% seqlevelsInUse(annotations), ]
+# matchGenes fails if any regions are on a sequence not in the annotations so
+# only pass the dmrs with a valid seqname to matchGenes and insert NAs for the rest
 
-matched.genes <- matchGenes(dmrs, annotations,
-    promoterDist={promoterDist}, type='{type}', skipExons={skipExons})
+canmap <- dmrs$chr %in% seqlevelsInUse(annotations)
+tmp <- matchGenes(dmrs[canmap, ], annotations, promoterDist={promoterDist},
+                  type='{type}', skipExons={skipExons})
+dmrs[colnames(tmp)] <- NA
+dmrs[canmap, colnames(tmp)] <- tmp
 
-annotated <- cbind(dmrs, matched.genes)
-write.csv(annotated, file='{matched_file}', row.names=FALSE)
+write.csv(dmrs, file='{matched_file}', row.names=FALSE)
 EOF
 mkdir -p {data_dir} && \\
 cp -f {matched_file} {data_dir} && \\
