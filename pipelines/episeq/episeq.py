@@ -1890,7 +1890,7 @@ suppressPackageStartupMessages(library(BiSeq))
 suppressPackageStartupMessages(library(data.table))
 suppressPackageStartupMessages(library(GenomicRanges))
 suppressPackageStartupMessages(library(doParallel))
-suppressPackageStartupMessages(library(LOLA, lib.loc='/home/jonBarenboim/R/x86_64-pc-linux-gnu-library/3.3'))
+suppressPackageStartupMessages(library(LOLA, lib.loc='{LOLA_lib_loc}'))
 source('/hpf/largeprojects/ccmbio/jonBarenboim/mugqic_pipelines/pipelines/episeq/LOLAsearch.r')
 
 registerDoParallel(cores={cores})
@@ -1949,6 +1949,7 @@ pandoc \\
                 LOLA_filename=tuple(config.param('position_enrichment_analysis', 'filename', type='list')),
                 LOLA_description=tuple(config.param('position_enrichment_analysis', 'description', type='list')),
                 LOLA_any=tuple(config.param('position_enrichment_analysis', 'any', type='list')),
+                LOLA_lib_loc=config.param('position_enrichment_analysis', 'LOLA_lib_loc', type='dirpath'),
                 analysis_file=analysis_file,
                 data_dir=os.path.join('report', report_data),
                 zip_file=os.path.join('report', report_data, os.path.basename(report_data) + '.zip'),
@@ -2014,7 +2015,7 @@ suppressPackageStartupMessages(library(BiSeq))
 suppressPackageStartupMessages(library(GenomicRanges))
 suppressPackageStartupMessages(library(data.table))
 suppressPackageStartupMessages(library(doParallel))
-suppressPackageStartupMessages(library(LOLA, lib.loc='/home/jonBarenboim/R/x86_64-pc-linux-gnu-library/3.3/'))
+suppressPackageStartupMessages(library(LOLA, lib.loc='{LOLA_lib_loc}'))
 source('/hpf/largeprojects/ccmbio/jonBarenboim/mugqic_pipelines/pipelines/episeq/LOLAsearch.r')
 
 registerDoParallel(cores={cores})
@@ -2071,6 +2072,7 @@ pandoc \\
                 LOLA_filename=tuple(config.param('region_enrichment_analysis', 'filename', type='list')),
                 LOLA_description=tuple(config.param('region_enrichment_analysis', 'description', type='list')),
                 LOLA_any=tuple(config.param('region_enrichment_analysis', 'any', type='list')),
+                LOLA_lib_loc=config.param('region_enrichment_analysis', 'LOLA_lib_loc', type='dirpath'),
                 analysis_file=analysis_file,
                 data_dir=os.path.join('report', report_data),
                 zip_file=os.path.join('report', report_data, os.path.basename(report_data) + '.zip'),
