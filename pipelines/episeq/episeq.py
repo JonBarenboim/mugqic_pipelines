@@ -30,6 +30,7 @@ Input
 -----
 - `FASTQ` or `BAM` files containing methylation sequencing data
 - Reference genome in `FASTA` format
+- Reference annotations in `gtf` format
 - MUGQIC formatted `.design` file
 - MUGQIC formatted `.readset` file
 - Epi-seq pipeline's `.ini` file
@@ -41,13 +42,21 @@ Output Data
 - Methylation Graph Plot:
     - methyl_calls/{sample.name}/{sample.name}.merged.deduplicated.bedGraph.gz
 - Methylation Coverage:
-    - methyl_calls{sample.name}/{sample.name}.merged.deduplicated.bismark.cov.gz
+    - methyl_calls/{sample.name}/{sample.name}.merged.deduplicated.bismark.cov.gz
 - CpG Methylation List:
     - methyl_calls/{sample.name}/{sample.name}.merged.deduplicated.CpG_report.txt.gz
+- Sample Methylation Values:
+  - methylation_values/methylation_values.csv
 - Differentially Methylated Positions:
     - differential_methylated_positions/{contrast.name}_RRBS_differential_methylated_pos.csv
 - Differentially Methylated Regions:
     - differential_methylated_regions/{contrast.name}_RRBS_differential_methylated_regions.csv
+- Annotations for differentially methylated positions and regions
+    - annotate_positions/{contrast.name}_matched_genes.csv
+    - annotate_regions/{contrast.name}_matched_genes.csv
+- Enrichment analaysis of differentially methylatd positions and regions
+    - enrichment_analysis/{contrast.name}_position_enrichment_analysis.csv
+    - enrichment_analysis/{contrast.name}_region_enrichment_analysis.csv
 
 Output Reports
 --------------
@@ -90,8 +99,14 @@ pipeline. It shows the order of the pipeline and the dependencies for each step.
  9. (e) Recalculate nucleotide coverage 2 (calc_dedup_nucleotide_coverage)
 10. (e) Methylation Calling and Analysis (bismark_methylation_caller)
 11. (f) Bismark Sample-Level Report Generator (bismark_html_report_generator)
-12. (g) Position Specific Differential Analysis (differential_methylated_pos)
-13. (g) Regional Differential Analysis (differential_methylated_regions)
+12. (g) Calculate Methylation Values for all Samples (methylation_values)
+13. (h) Position Specific Differential Analysis (differential_methylated_pos)
+14. (h) Regional Differential Analysis (differential_methylated_regions)
+15. (a) Prepare Annotations for the Reference Genome (prepare_annotations)
+16. (i) Annotate Differentially Methylated Positions (annotate_positions)
+17. (i) Annotate Differentially Methylated Regions (annotate_regions)
+18. (i) Perform Enrichment Analysis on Differentially Methylated Positions (position_enrichment_analysis)
+19. (i) Perform Enrichment Analysis on Differentially Methylated Regions (region_enrichment_analysis)
 
 Creating new Steps and Jobs
 ---------------------------------------

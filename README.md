@@ -11,7 +11,7 @@ On this page:
 
 Software requirement
 --------------------
-MUGQIC pipelines have been tested with Python 2.7.
+MUGQIC pipelines have been tested with Python 2.7 and R 3.2.
 
 
 Quick setup for abacus, guillimin and mammouth users
