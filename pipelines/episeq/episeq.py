@@ -1879,7 +1879,7 @@ pandoc \\
             dmps_file = os.path.join("differential_methylated_positions",
                 contrast.name + "_RRBS_differential_methylated_pos.csv")
 
-
+            # TODO: change location of sourced script to `$R_TOOLS/LOLAsearch.R`
             command="""\
 TEMPLATE_STR_FILE=position_enrichment_analysis/$(date +%F)_template_var_strings.txt && \\
 TEMPLATE_STR_FILE2=region_enrichment_analysis/$(date +%F)_template_var_strings.txt && \\
@@ -1892,7 +1892,8 @@ suppressPackageStartupMessages(library(data.table))
 suppressPackageStartupMessages(library(GenomicRanges))
 suppressPackageStartupMessages(library(doParallel))
 suppressPackageStartupMessages(library(LOLA, lib.loc='{LOLA_lib_loc}'))
-source('/hpf/largeprojects/ccmbio/jonBarenboim/mugqic_pipelines/pipelines/episeq/LOLAsearch.r')
+
+source('/hpf/largeprojects/ccmbio/jonBarenboim/mugqic_tools/R-tools/LOLAsearch.R')
 
 registerDoParallel(cores={cores})
 
@@ -1964,7 +1965,8 @@ pandoc \\
                 [analysis_file],
                 [
                     ["position_enrichment_analysis", "module_R"],
-                    ["position_enrichment_analysis", "module_pandoc"]
+                    ["position_enrichment_analysis", "module_pandoc"],
+                    ["position_enrichment_analysis", "module_mugqic_tools"]
                 ],
                 command=command,
                 report_files=[report_file],
@@ -2004,6 +2006,7 @@ pandoc \\
             dmrs_file = os.path.join("differential_methylated_regions",
                 contrast.name + "_RRBS_differential_methylated_regions.csv")
 
+            # TODO: change location of sourced script to `$R_TOOLS/LOLAsearch.R`
             command="""\
 TEMPLATE_STR_FILE=region_enrichment_analysis/$(date +%F)_template_var_strings.txt && \\
 TEMPLATE_STR_FILE2=position_enrichment_analysis/$(date +%F)_template_var_strings.txt && \\
@@ -2017,7 +2020,8 @@ suppressPackageStartupMessages(library(GenomicRanges))
 suppressPackageStartupMessages(library(data.table))
 suppressPackageStartupMessages(library(doParallel))
 suppressPackageStartupMessages(library(LOLA, lib.loc='{LOLA_lib_loc}'))
-source('/hpf/largeprojects/ccmbio/jonBarenboim/mugqic_pipelines/pipelines/episeq/LOLAsearch.r')
+
+source('/hpf/largeprojects/ccmbio/jonBarenboim/mugqic_tools/R-tools/LOLAsearch.R')
 
 registerDoParallel(cores={cores})
 
@@ -2087,7 +2091,8 @@ pandoc \\
                 [analysis_file],
                 [
                     ["region_enrichment_analysis", "module_R"],
-                    ["region_enrichment_analysis", "module_pandoc"]
+                    ["region_enrichment_analysis", "module_pandoc"],
+                    ["region_enrichment_analysis", "module_mugqic_tools"]
                 ],
                 command=command,
                 report_files=[report_file],

@@ -141,20 +141,6 @@ python $PYTHON_TOOLS/vcfStats.py \\
         )
     )
 
-def beta_metrics(beta_file, output_dir):
-    graphs = ['beta_distribution']
-    return Job (
-        [beta_file],
-        [os.path.join(output_dir, graph + ".png") for graph in graphs],
-        [
-            ['methylation_values', 'module_mugqic_tools'],
-            ['methylation_values', 'module_R']
-        ],
-        command="""\
-Rscript /hpf/largeprojects/ccmbio/jonBarenboim/mugqic_pipelines/pipelines/episeq/betaMetrics.R \\
-    {beta_file} {output_dir}""".format(beta_file=beta_file, output_dir=output_dir)
-    )
-
 def dmp_metrics(dmp_file, beta_file, cases, controls, output_dir, data_dir, contrast_name):
     graphs = ['dmps_by_avg_delta_beta', 'dmp_heatmap',
               'global_beta_pca', 'dmp_beta_pca']
@@ -165,8 +151,9 @@ def dmp_metrics(dmp_file, beta_file, cases, controls, output_dir, data_dir, cont
             ['dmp_metrics', 'module_mugqic_tools'],
             ['dmp_metrics', 'module_R']
         ],
+        # TODO: change location of script to `$R_TOOLS/dmpMetrics.R` once it is moved there
         command="""\
-Rscript /hpf/largeprojects/ccmbio/jonBarenboim/mugqic_pipelines/pipelines/episeq/dmpMetrics.R \\
+Rscript /hpf/largeprojects/ccmbio/jonBarenboim/mugqic_tools/R-tools/dmpMetrics.R \\
     {dmp_file} {beta_file} "{cases}" "{controls}" {output_dir} {data_dir} {contrast_name}""".format(
             dmp_file=dmp_file,
             beta_file=beta_file,
@@ -186,8 +173,9 @@ def dmr_metrics(dmr_file, output_dir, contrast_name):
             ['dmr_metrics', 'module_mugqic_tools'],
             ['dmr_metrics', 'module_R']
         ],
+        # TODO: change location of script to `$R_TOOLS/dmrMetrics.R` once it is moved there
         command="""\
-Rscript /hpf/largeprojects/ccmbio/jonBarenboim/mugqic_pipelines/pipelines/episeq/dmrMetrics.R \\
+Rscript /hpf/largeprojects/ccmbio/jonBarenboim/mugqic_tools/R-tools/dmrMetrics.R \\
     {dmr_file} {output_dir} {contast_name}""".format(
             dmr_file=dmr_file,
             output_dir=output_dir,
