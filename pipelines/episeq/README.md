@@ -219,7 +219,7 @@ The following input files are accepted:
 | Output directory name: | `methyl_calls` |
 | Job name prefix | `bismark_methylation_caller` |
 | Requires | [bismark_prepare_genome](#1-bismark_prepare_genome) <br/> [bismark_deduplicate](#8-bismark_deduplicate) |
-| Blocks | [bismark_html_report_generator](#11-bismark_html_report_generator) <br/> [differential_methylated_pos](#12-differential_methylated_pos) <br/>[differential_methylated_regions](13-differential_methylated_regions) |
+| Blocks | [bismark_html_report_generator](#11-bismark_html_report_generator) <br/> [differential_methylated_pos](#12-differential_methylated_pos) <br/>[differential_methylated_regions](#13-differential_methylated_regions) |
 
 ### 11. bismark_html_report_generator
 This job summarizes all data from steps 5-10 into one HTML report file. It contains diagrams that summarizes the various report files Bismark creates in it's proccessing toolkit. This can serve as an excellent overview for the quality of the sample data and could make all other Bismark output reports redundant. This step is recorded in the final pipeline report.
@@ -232,13 +232,14 @@ This job summarizes all data from steps 5-10 into one HTML report file. It conta
 | Blocks | None |
 
 ### 12. methylation_values
-This step reads reads methylation values for each sample. The `BedGraph` files from the previous methylation calling step are combined to a `BSRaw` object with the R package `BiSeq`. The `BSRaw` object is then converted to a `BSRel` object and saved as an R data file. 
+This step reads reads methylation values for each sample. The `BedGraph` files from the previous methylation calling step are combined to a `BSRaw` object with the R package `BiSeq`. The `BSRaw` object is then converted to a `BSRel` object and saved as an R data file.
+
 | Job Attribute | Value |
 |:--------------|:----- |
 | Output directory name: | `methylation_values` |
 | Job name prefix | `methylation_values` |
 | Requires | `bismark_methylation_caller` |
-| Blocks | [differential_methylated_pos](#13-differential_methylated_pos) <br/> [differential_methylated_regions](#14-differential_methylated_regions) <br/> [position_enrichment_analysis](#18-position_enrichment_analsysis) <br/> [region_enrichment_analysis](#19-region_enrichment_analysis) |
+| Blocks | [differential_methylated_pos](#13-differential_methylated_pos) <br/> [differential_methylated_regions](#14-differential_methylated_regions) <br/> [position_enrichment_analysis](#18-position_enrichment_analysis) <br/> [region_enrichment_analysis](#19-region_enrichment_analysis) |
 
 ### 13. differential_methylated_pos
 This step finds a list of differentially methylated CpG sites with respect to a categorical
