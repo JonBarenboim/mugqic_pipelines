@@ -151,9 +151,9 @@ def dmp_metrics(dmp_file, beta_file, cases, controls, output_dir, data_dir, cont
             ['dmp_metrics', 'module_mugqic_tools'],
             ['dmp_metrics', 'module_R']
         ],
-        # TODO: change location of script to `$R_TOOLS/dmpMetrics.R` once it is moved there
+        
         command="""\
-Rscript /hpf/largeprojects/ccmbio/jonBarenboim/mugqic_tools/R-tools/dmpMetrics.R \\
+Rscript $R_TOOLS/dmp/Metrics.R \\
     {dmp_file} {beta_file} "{cases}" "{controls}" {output_dir} {data_dir} {contrast_name}""".format(
             dmp_file=dmp_file,
             beta_file=beta_file,
@@ -173,9 +173,9 @@ def dmr_metrics(dmr_file, output_dir, contrast_name):
             ['dmr_metrics', 'module_mugqic_tools'],
             ['dmr_metrics', 'module_R']
         ],
-        # TODO: change location of script to `$R_TOOLS/dmrMetrics.R` once it is moved there
+       
         command="""\
-Rscript /hpf/largeprojects/ccmbio/jonBarenboim/mugqic_tools/R-tools/dmrMetrics.R \\
+Rscript $R_TOOLS/dmrMetrics.R \\
     {dmr_file} {output_dir} {contast_name}""".format(
             dmr_file=dmr_file,
             output_dir=output_dir,
